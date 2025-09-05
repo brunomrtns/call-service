@@ -15,7 +15,7 @@ export class AsteriskService extends EventEmitter {
   constructor() {
     super();
     this.httpClient = axios.create({
-      baseURL: `http://${config.asterisk.host}:${config.asterisk.ariPort}/ari`,
+      baseURL: `http://${config.asterisk.host}:${config.asterisk.ariPort}/asterisk/ari`,
       auth: {
         username: config.asterisk.ariUser,
         password: config.asterisk.ariPass,
@@ -27,7 +27,7 @@ export class AsteriskService extends EventEmitter {
   }
 
   private setupWebSocket(): void {
-    const wsUrl = `ws://${config.asterisk.host}:${config.asterisk.ariPort}/ari/events`;
+    const wsUrl = `ws://${config.asterisk.host}:${config.asterisk.ariPort}/asterisk/ari/events?api_key=${config.asterisk.ariUser}:${config.asterisk.ariPass}&app=call_service`;
     const wsAuth = Buffer.from(
       `${config.asterisk.ariUser}:${config.asterisk.ariPass}`
     ).toString("base64");
