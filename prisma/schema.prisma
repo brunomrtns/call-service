@@ -1,0 +1,82 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CallUser {
+  id                   Int       @id @default(autoincrement())
+  name                 String
+  username             String    @unique
+  type                 UserType  @default(client)
+  email                String    @unique
+  password             String
+  device               String?   @unique
+  devicePassword       String?
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  initiatedCalls CallHistory[] @relation("CallInitiator")
+  receivedCalls  CallHistory[] @relation("CallReceiver")
+
+  @@map("call_users")
+}
+
+model CallHistory {
+  id                String         @id @default(cuid())
+  callId            String         @unique
+  initiatorId       Int
+  receiverId        Int
+  initiatorDevice   String
+  receiverDevice    String
+  status            CallStatus     @default(initiated)
+  startTime         DateTime       @default(now())
+  endTime           DateTime?
+  duration          Int?           // Duration in seconds
+  callType          CallType       @default(internal)
+  transferredTo     String?        // Device transferred to
+  transferredBy     String?        // Device that initiated transfer
+  recordingPath     String?
+  notes             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // Relations
+  initiator CallUser @relation("CallInitiator", fields: [initiatorId], references: [id])
+  receiver  CallUser @relation("CallReceiver", fields: [receiverId], references: [id])
+
+  @@map("call_history")
+}
+
+enum UserType {
+  client
+  attendant
+  admin
+}
+
+enum CallStatus {
+  initiated
+  ringing
+  answered
+  busy
+  failed
+  ended
+  transferred
+  missed
+}
+
+enum CallType {
+  internal
+  external
+  conference
+  transfer
+}
