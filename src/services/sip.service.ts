@@ -7,8 +7,61 @@ import WebSocket from "ws";
 // Polyfill WebSocket para Node.js (JsSIP espera que WebSocket seja global)
 declare global {
   var WebSocket: typeof WebSocket;
+  var window: any;
 }
 global.WebSocket = WebSocket as any;
+
+// Polyfill window para Node.js (JsSIP espera que window seja global)
+global.window = {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  dispatchEvent: () => {},
+  location: { protocol: 'https:', hostname: 'localhost' },
+  navigator: { 
+    userAgent: 'Node.js',
+    mediaDevices: {
+      getUserMedia: () => Promise.resolve({
+        getTracks: () => [],
+        getAudioTracks: () => [],
+        getVideoTracks: () => [],
+        clone: () => ({ getTracks: () => [] }),
+        stop: () => {}
+      })
+    }
+  },
+  document: { 
+    createElement: () => ({ style: {} }),
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  },
+  RTCPeerConnection: class {
+    constructor() {}
+    createOffer() { return Promise.resolve({ type: 'offer', sdp: '' }); }
+    createAnswer() { return Promise.resolve({ type: 'answer', sdp: '' }); }
+    setLocalDescription() { return Promise.resolve(); }
+    setRemoteDescription() { return Promise.resolve(); }
+    addTrack() { return {}; }
+    removeTrack() {}
+    addEventListener() {}
+    removeEventListener() {}
+    close() {}
+  },
+  MediaStreamTrack: class {
+    kind: string;
+    enabled: boolean;
+    readyState: string;
+    
+    constructor() {
+      this.kind = 'audio';
+      this.enabled = true;
+      this.readyState = 'live';
+    }
+    stop() {}
+    clone() { return new (global.window.MediaStreamTrack)(); }
+    addEventListener() {}
+    removeEventListener() {}
+  }
+};
 
 // Importar JsSIP para registro SIP real
 const JsSIP = require("jssip");
@@ -221,8 +274,12 @@ export class SipService extends EventEmitter {
       logger.info("📡 COMANDO ASTERISK:", originateData);
 
       try {
+        const url = `${this.asteriskUrl}/asterisk/ari/channels`;
+        logger.info(`🌐 URL Asterisk ARI: ${url}`);
+        logger.info(`🔐 Auth: ${this.ariAuth ? 'Configurado' : 'NÃO CONFIGURADO'}`);
+        
         const response = await axios.post(
-          `${this.asteriskUrl}/ari/channels`,
+          url,
           originateData,
           {
             headers: {
@@ -257,7 +314,7 @@ export class SipService extends EventEmitter {
         }, 1000);
 
         return callId;
-      } catch (asteriskError) {
+      } catch (asteriskError: any) {
         logger.error(
           `❌ ERRO ASTERISK:`,
           asteriskError.response?.data || asteriskError.message
@@ -281,7 +338,7 @@ export class SipService extends EventEmitter {
 
       if (call.channelId) {
         await axios.post(
-          `${this.asteriskUrl}/ari/channels/${call.channelId}/answer`,
+          `${this.asteriskUrl}/asterisk/ari/channels/${call.channelId}/answer`,
           {},
           {
             headers: {
@@ -311,7 +368,7 @@ export class SipService extends EventEmitter {
 
       if (call.channelId) {
         await axios.delete(
-          `${this.asteriskUrl}/ari/channels/${call.channelId}`,
+          `${this.asteriskUrl}/asterisk/ari/channels/${call.channelId}`,
           {
             headers: {
               Authorization: `Basic ${this.ariAuth}`,
@@ -341,7 +398,7 @@ export class SipService extends EventEmitter {
 
       if (call.channelId) {
         await axios.delete(
-          `${this.asteriskUrl}/ari/channels/${call.channelId}`,
+          `${this.asteriskUrl}/asterisk/ari/channels/${call.channelId}`,
           {
             headers: {
               Authorization: `Basic ${this.ariAuth}`,

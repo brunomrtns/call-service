@@ -1,0 +1,45 @@
+ssh root@192.168.15.176 "incus exec asterisk -- asterisk -rx 'http show status'"
+
+verificar logados
+bruno.martins@D1236:~/Desenvolvimento/my-github/call-service$ cd /home/bruno.martins/Desenvolvimento/my-github/call-service && node -e "
+> const { io } = require('socket.io-client');
+> const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjcsInVzZXJuYW1lIjoidGVzdGUiLCJ0eXBlIjoiY2xpZW50IiwiaWF0IjoxNzU3MDk2MDg0LCJleHAiOjE3NTcxODI0ODR9._9AYa997uaHnPQWzstzbFH61slQv3HJEr-iBEtlYOFw';
+> 
+> const socket = io('http://localhost:3001', {
+>   auth: { token },
+>   transports: ['polling']
+> });
+> 
+> console.log('🔌 Iniciando conexão Socket.IO...');
+> 
+> socket.on('connect', () => {
+>   console.log('✅ Conectou!', socket.id);
+>   
+>   socket.on('users_online', (users) => {
+>     console.log('👥 Usuários online:', users);
+>   });
+>   
+>   setTimeout(() => process.exit(0), 2000);
+> });
+> 
+> socket.on('connect_error', (error) => {
+>   console.log('❌ Erro:', error.message);
+>   process.exit(1);
+> });
+> 
+> setTimeout(() => {
+>   console.log('⏰ Timeout - não conectou');
+>   process.exit(1);
+> }, 10000);
+> "
+🔌 Iniciando conexão Socket.IO...
+✅ Conectou! u-UshwktFfiTdDf3AAAJ
+👥 Usuários online: [
+  {
+    userId: 7,
+    username: 'teste',
+    type: 'client',
+    device: '3006',
+    sipRegistered: true
+  }
+]
