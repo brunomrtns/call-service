@@ -24,7 +24,7 @@ export class UserService {
     const { username, password } = loginRequest;
 
     try {
-      const user = await this.db.user.findUnique({
+      const user = await this.db.callUser.findUnique({
         where: { username },
       });
 
@@ -77,7 +77,7 @@ export class UserService {
 
     try {
       // Check if username or email already exists
-      const existingUser = await this.db.user.findFirst({
+      const existingUser = await this.db.callUser.findFirst({
         where: {
           OR: [{ username }, { email }],
         },
@@ -99,7 +99,7 @@ export class UserService {
         devicePassword = await bcrypt.hash(device, 10);
       }
 
-      const user = await this.db.user.create({
+      const user = await this.db.callUser.create({
         data: {
           name,
           username,
@@ -146,7 +146,7 @@ export class UserService {
         updateData.password = await bcrypt.hash(password, 10);
       }
 
-      const user = await this.db.user.update({
+      const user = await this.db.callUser.update({
         where: { id: userId },
         data: updateData,
       });
@@ -169,7 +169,7 @@ export class UserService {
 
   public async getUserById(userId: number): Promise<any> {
     try {
-      const user = await this.db.user.findUnique({
+      const user = await this.db.callUser.findUnique({
         where: { id: userId },
       });
 
@@ -194,7 +194,7 @@ export class UserService {
 
   public async getAllUsers(): Promise<any[]> {
     try {
-      const users = await this.db.user.findMany({
+      const users = await this.db.callUser.findMany({
         select: {
           id: true,
           name: true,
@@ -218,7 +218,7 @@ export class UserService {
 
   public async deleteUser(userId: number): Promise<void> {
     try {
-      await this.db.user.delete({
+      await this.db.callUser.delete({
         where: { id: userId },
       });
 
@@ -239,7 +239,7 @@ export class UserService {
         Math.floor(Math.random() * (rangeEnd - rangeStart + 1)) + rangeStart;
       const deviceStr = device.toString();
 
-      const existingDevice = await this.db.user.findUnique({
+      const existingDevice = await this.db.callUser.findUnique({
         where: { device: deviceStr },
       });
 

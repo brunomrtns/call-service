@@ -28,8 +28,11 @@ router.put(
 // Admin routes
 router.get(
   "/",
-  authorize(UserType.ADMIN, UserType.ATTENDANT),
   userController.getAllUsers
+);
+router.get(
+  "/online",
+  userController.getOnlineUsers
 );
 router.post(
   "/",

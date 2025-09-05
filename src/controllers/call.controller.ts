@@ -16,15 +16,47 @@ export class CallController {
         return;
       }
 
-      const callRequest = req.body as CallRequest;
+      const requestBody = req.body;
+      let callRequest: CallRequest;
+      let initiator: any;
+      let receiver: any;
 
-      // Create call history record
-      const initiator = await this.getUserByDevice(callRequest.callerDevice);
-      const receiver = await this.getUserByDevice(callRequest.calleeDevice);
+      // Handle both formats: targetUserId or callerDevice/calleeDevice
+      if (requestBody.targetUserId) {
+        // New format: targetUserId
+        const userService = new (await import("@/services/user.service")).UserService();
+        
+        // Get caller from authenticated user
+        initiator = await userService.getUserById(req.user.userId);
+        if (!initiator || !initiator.device) {
+          res.status(400).json({ error: "Caller device not configured" });
+          return;
+        }
 
-      if (!initiator || !receiver) {
-        res.status(404).json({ error: "Device not found" });
-        return;
+        // Get receiver from targetUserId
+        receiver = await userService.getUserById(requestBody.targetUserId);
+        if (!receiver || !receiver.device) {
+          res.status(404).json({ error: "Target user or device not found" });
+          return;
+        }
+
+        callRequest = {
+          callerDevice: initiator.device,
+          calleeDevice: receiver.device,
+          callType: requestBody.callType || CallType.INTERNAL
+        };
+      } else {
+        // Old format: callerDevice/calleeDevice
+        callRequest = requestBody as CallRequest;
+        
+        // Get users by device
+        initiator = await this.getUserByDevice(callRequest.callerDevice);
+        receiver = await this.getUserByDevice(callRequest.calleeDevice);
+
+        if (!initiator || !receiver) {
+          res.status(404).json({ error: "Device not found" });
+          return;
+        }
       }
 
       // Initiate call through Asterisk

@@ -150,7 +150,7 @@ class Application {
       this.server.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
         logger.info(`Environment: ${config.nodeEnv}`);
-        logger.info(`Socket.IO running on port ${config.socketPort}`);
+        logger.info(`Socket.IO running on port ${config.port}`);
       });
 
       // Graceful shutdown handling

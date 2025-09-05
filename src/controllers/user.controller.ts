@@ -107,6 +107,27 @@ export class UserController {
     }
   }
 
+  public async getOnlineUsers(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { getSocketService } = await import("@/services/socket.service");
+      const socketService = getSocketService();
+      
+      if (!socketService) {
+        res.json([]);
+        return;
+      }
+      
+      const onlineUsers = socketService.getOnlineUsers();
+      res.json(onlineUsers);
+    } catch (error: any) {
+      logger.error("Get online users error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   public async deleteUser(
     req: AuthenticatedRequest,
     res: Response

@@ -7,48 +7,34 @@ class Database {
   public static getInstance(): PrismaClient {
     if (!Database.instance) {
       Database.instance = new PrismaClient({
-        log: [
-          {
-            emit: "event",
-            level: "query",
-          },
-          {
-            emit: "stdout",
-            level: "error",
-          },
-          {
-            emit: "stdout",
-            level: "info",
-          },
-          {
-            emit: "stdout",
-            level: "warn",
-          },
-        ],
+        log: ['error', 'warn'],
       });
-
-      // Log database queries in development
-      if (process.env.NODE_ENV === "development") {
-        (Database.instance as any).$on("query", (e: any) => {
-          logger.debug("Database Query:", {
-            query: e.query,
-            params: e.params,
-            duration: `${e.duration}ms`,
-          });
-        });
-      }
     }
 
     return Database.instance;
   }
 
   public static async connect(): Promise<void> {
-    try {
-      await Database.getInstance().$connect();
-      logger.info("Database connected successfully");
-    } catch (error) {
-      logger.error("Database connection failed:", error);
-      throw error;
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        await Database.getInstance().$connect();
+        logger.info("Database connected successfully");
+        return;
+      } catch (error) {
+        attempt++;
+        logger.warn(`Database connection attempt ${attempt}/${maxRetries} failed:`, error);
+        
+        if (attempt >= maxRetries) {
+          logger.error("Database connection failed after all retries:", error);
+          throw error;
+        }
+        
+        // Wait before retry (2^attempt seconds)
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      }
     }
   }
 

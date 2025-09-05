@@ -122,23 +122,60 @@ export class AsteriskService extends EventEmitter {
     try {
       const { callerDevice, calleeDevice } = callRequest;
 
+      // Para chamadas internas entre ramais, vamos usar uma abordagem mais simples
+      // Vamos criar um canal virtual para estabelecer a chamada
+      logger.info(`Initiating call from ${callerDevice} to ${calleeDevice}`);
+
+      // Verificar se os endpoints estão disponíveis
+      const calleeStatus = await this.checkEndpointStatus(calleeDevice);
+      if (!calleeStatus.available) {
+        throw new Error(`Target device ${calleeDevice} is not available`);
+      }
+
+      // Originar a chamada usando o AMI-style command via ARI
       const response = await this.httpClient.post("/channels", {
         endpoint: `PJSIP/${calleeDevice}`,
         extension: callerDevice,
         context: "default",
         priority: 1,
-        app: "call-service",
+        variables: {
+          "CALLER_DEVICE": callerDevice,
+          "CALLEE_DEVICE": calleeDevice
+        }
       });
 
       const channelId = response.data.id;
-      logger.info(
-        `Call initiated from ${callerDevice} to ${calleeDevice}, channel: ${channelId}`
-      );
+      logger.info(`Call channel created: ${channelId}`);
 
+      // Start the call by dialing
+      await this.httpClient.post(`/channels/${channelId}/dial`);
+
+      logger.info(`Call initiated successfully from ${callerDevice} to ${calleeDevice}, channel: ${channelId}`);
       return channelId;
-    } catch (error) {
+
+    } catch (error: any) {
       logger.error("Error making call:", error);
-      throw new Error("Failed to initiate call");
+      if (error.response) {
+        logger.error("Asterisk response:", {
+          status: error.response.status,
+          data: error.response.data,
+          url: error.config?.url
+        });
+      }
+      throw new Error(`Failed to initiate call: ${error.message}`);
+    }
+  }
+
+  private async checkEndpointStatus(endpoint: string): Promise<{available: boolean, status: string}> {
+    try {
+      const response = await this.httpClient.get(`/endpoints/PJSIP/${endpoint}`);
+      return {
+        available: response.data.state === "online",
+        status: response.data.state
+      };
+    } catch (error) {
+      logger.warn(`Could not check endpoint status for ${endpoint}`);
+      return { available: true, status: "unknown" }; // Assume available if we can't check
     }
   }
 
