@@ -107,27 +107,6 @@ export class UserController {
     }
   }
 
-  public async getOnlineUsers(
-    req: AuthenticatedRequest,
-    res: Response
-  ): Promise<void> {
-    try {
-      const { getSocketService } = await import("@/services/socket.service");
-      const socketService = getSocketService();
-      
-      if (!socketService) {
-        res.json([]);
-        return;
-      }
-      
-      const onlineUsers = socketService.getOnlineUsers();
-      res.json(onlineUsers);
-    } catch (error: any) {
-      logger.error("Get online users error:", error);
-      res.status(500).json({ error: error.message });
-    }
-  }
-
   public async deleteUser(
     req: AuthenticatedRequest,
     res: Response
@@ -159,6 +138,30 @@ export class UserController {
       res.json(result);
     } catch (error: any) {
       logger.error("Update profile error:", error);
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  public async getOnlineUsers(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      // Para simplicidade, vamos retornar todos os usuários por enquanto
+      // Em um sistema real, você manteria uma lista de usuários conectados via WebSocket/Socket.IO
+      const users = await userService.getAllUsers();
+
+      // Filtrar apenas os campos necessários para o frontend
+      const onlineUsers = users.map((user) => ({
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        device: user.device,
+      }));
+
+      res.json(onlineUsers);
+    } catch (error: any) {
+      logger.error("Get online users error:", error);
       res.status(400).json({ error: error.message });
     }
   }

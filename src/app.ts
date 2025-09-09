@@ -9,8 +9,6 @@ import Database from "@/config/database";
 import logger from "@/utils/logger";
 import routes from "@/routes";
 import { errorHandler, notFound } from "@/middleware/error";
-import { initializeSocket, getSocketService } from "@/services/socket.service";
-import asteriskService from "@/services/asterisk.service";
 
 class Application {
   private app: express.Application;
@@ -26,7 +24,7 @@ class Application {
   private setupMiddleware(): void {
     // Security middleware
     this.app.use(helmet());
-    this.app.use(compression());
+    // this.app.use(compression());
 
     // CORS configuration
     this.app.use(
@@ -85,53 +83,6 @@ class Application {
     this.app.use(errorHandler);
   }
 
-  private setupAsteriskEventHandlers(): void {
-    // Handle Asterisk events and broadcast via Socket.IO
-    asteriskService.on("call_initiated", (event) => {
-      const socketService = getSocketService();
-      if (socketService) {
-        socketService.notifyCallEvent({
-          type: "call_initiated",
-          callId: event.channel?.id || "",
-          data: event,
-        });
-      }
-    });
-
-    asteriskService.on("call_ringing", (event) => {
-      const socketService = getSocketService();
-      if (socketService) {
-        socketService.notifyCallEvent({
-          type: "call_ringing",
-          callId: event.channel?.id || "",
-          data: event,
-        });
-      }
-    });
-
-    asteriskService.on("call_answered", (event) => {
-      const socketService = getSocketService();
-      if (socketService) {
-        socketService.notifyCallEvent({
-          type: "call_answered",
-          callId: event.channel?.id || "",
-          data: event,
-        });
-      }
-    });
-
-    asteriskService.on("call_ended", (event) => {
-      const socketService = getSocketService();
-      if (socketService) {
-        socketService.notifyCallEvent({
-          type: "call_ended",
-          callId: event.channel?.id || "",
-          data: event,
-        });
-      }
-    });
-  }
-
   public async start(): Promise<void> {
     try {
       // Connect to database
@@ -140,17 +91,10 @@ class Application {
       // Create HTTP server
       this.server = createServer(this.app);
 
-      // Initialize Socket.IO
-      initializeSocket(this.server);
-
-      // Setup Asterisk event handlers
-      this.setupAsteriskEventHandlers();
-
       // Start server
       this.server.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
         logger.info(`Environment: ${config.nodeEnv}`);
-        logger.info(`Socket.IO running on port ${config.port}`);
       });
 
       // Graceful shutdown handling
@@ -169,15 +113,6 @@ class Application {
       // Close HTTP server
       if (this.server) {
         this.server.close();
-      }
-
-      // Disconnect from Asterisk
-      asteriskService.disconnect();
-
-      // Close Socket.IO connections
-      const socketService = getSocketService();
-      if (socketService) {
-        socketService.disconnect();
       }
 
       // Disconnect from database

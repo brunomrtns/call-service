@@ -51,12 +51,11 @@ export const schemas = {
 
   makeCall: Joi.object({
     callerDevice: Joi.string()
-      .pattern(/^\d{4}$/)
-      .when('targetUserId', { is: Joi.exist(), then: Joi.optional(), otherwise: Joi.required() }),
+      .required()
+      .pattern(/^\d{4}$/),
     calleeDevice: Joi.string()
-      .pattern(/^\d{4}$/)
-      .when('targetUserId', { is: Joi.exist(), then: Joi.optional(), otherwise: Joi.required() }),
-    targetUserId: Joi.number().optional(),
+      .required()
+      .pattern(/^\d{4}$/),
     callType: Joi.string()
       .valid("internal", "external", "conference", "transfer")
       .optional(),

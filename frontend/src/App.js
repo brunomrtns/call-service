@@ -1,47 +1,65 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import axios from "axios";
+import JsSIP from "jssip";
 import {
+  Button,
+  Card,
+  CardContent,
+  TextField,
+  Typography,
+  Box,
   Container,
   Paper,
-  Typography,
-  Button,
-  TextField,
+  Avatar,
+  Chip,
   List,
   ListItem,
+  ListItemAvatar,
   ListItemText,
-  Chip,
+  ListItemSecondaryAction,
+  IconButton,
+  Divider,
   Alert,
-  Box,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  Grid,
 } from "@mui/material";
-import PhoneIcon from "@mui/icons-material/Phone";
-import PhoneOffIcon from "@mui/icons-material/Phone";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import CancelIcon from "@mui/icons-material/Cancel";
-import PeopleIcon from "@mui/icons-material/People";
-import { io } from "socket.io-client";
-import axios from "axios";
+import {
+  Phone,
+  PhoneDisabled,
+  ExitToApp,
+  Person,
+  PersonAdd,
+  CallEnd,
+  Call,
+  Dialpad,
+  Backspace,
+} from "@mui/icons-material";
+import "./App.css";
 
-// Configurar base URL do axios
 axios.defaults.baseURL = "http://localhost:3001";
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [socket, setSocket] = useState(null);
-  const [connectedUsers, setConnectedUsers] = useState([]);
+const ASTERISK_HOST = "192.168.15.176";
+const SIP_WS_URI = `ws://${ASTERISK_HOST}:8088/asterisk/ws`;
+const SIP_REALM = ASTERISK_HOST;
 
-  // Debug: monitorar mudanças no connectedUsers
-  useEffect(() => {
-    console.log("🔍 connectedUsers atualizado:", connectedUsers);
-    console.log("🔍 Quantidade de usuários:", connectedUsers.length);
-    if (connectedUsers.length > 0) {
-      connectedUsers.forEach(user => {
-        console.log(`👤 Usuário: ${user.username} (ID: ${user.userId}) - Device: ${user.device}`);
-      });
-    }
-  }, [connectedUsers]);
+const SIP_PASSWORD_DEFAULT = "Teste123";
+
+const MOCK_CONTACTS = [
+  { id: 1, name: "Ramal 100", username: "ramal100", device: "100" },
+  { id: 2, name: "Ramal 101", username: "ramal101", device: "101" },
+  { id: 3, name: "Ramal 102", username: "ramal102", device: "102" },
+  { id: 4, name: "Ramal 103", username: "ramal103", device: "103" },
+  { id: 5, name: "Ramal 104", username: "ramal104", device: "104" },
+  { id: 6, name: "Ramal 105", username: "ramal105", device: "105" },
+  { id: 7, name: "Ramal 3005", username: "ramal3005", device: "3005" },
+  { id: 8, name: "Ramal 3006", username: "ramal3006", device: "3006" },
+];
+
+export default function App() {
+  const [user, setUser] = useState(null);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [registerForm, setRegisterForm] = useState({
     name: "",
@@ -50,742 +68,852 @@ function App() {
     device: "",
   });
   const [isRegistering, setIsRegistering] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [incomingCall, setIncomingCall] = useState(null);
-  const [currentCall, setCurrentCall] = useState(null);
-  const [callDialog, setCallDialog] = useState({
-    open: false,
-    targetUser: null,
-  });
 
-  // Restaurar usuário do localStorage ao carregar a página
+  const [ua, setUa] = useState(null);
+  const [sipStatus, setSipStatus] = useState("disconnected");
+  const [currentCall, setCurrentCall] = useState(null);
+  const [incoming, setIncoming] = useState(null);
+  const remoteAudioRef = useRef(null);
+
+  const [contacts, setContacts] = useState([]);
+  const [deviceState, setDeviceState] = useState({});
+  const [info, setInfo] = useState("");
+  const [err, setErr] = useState("");
+
+  // Discador
+  const [dialerOpen, setDialerOpen] = useState(false);
+  const [dialedNumber, setDialedNumber] = useState("");
+
   useEffect(() => {
-    const savedUser = localStorage.getItem('callSystemUser');
-    if (savedUser) {
+    const raw = localStorage.getItem("callSystemUser");
+    if (raw) {
       try {
-        const userData = JSON.parse(savedUser);
-        console.log('🔄 Restaurando usuário do localStorage:', userData);
-        
-        // Verificar se o token não expirou (verificação básica)
-        const tokenPayload = JSON.parse(atob(userData.token.split('.')[1]));
-        const now = Math.floor(Date.now() / 1000);
-        
-        if (tokenPayload.exp && tokenPayload.exp < now) {
-          console.log('⚠️ Token expirado, removendo do localStorage');
-          localStorage.removeItem('callSystemUser');
-          return;
-        }
-        
-        setUser(userData);
-      } catch (error) {
-        console.error('Erro ao restaurar usuário do localStorage:', error);
-        localStorage.removeItem('callSystemUser');
-      }
+        const data = JSON.parse(raw);
+        setUser(data);
+      } catch {}
     }
   }, []);
 
-  // Conectar ao Socket.IO quando usuário faz login
   useEffect(() => {
-    console.log('🔍 useEffect executado - user:', !!user, 'socket:', !!socket);
-    
-    if (user && !socket) {
-      console.log('=== INICIANDO CONEXÃO SOCKET ===');
-      console.log('User data:', user);
-      console.log('Token:', user.token);
-      
-      try {
-        const newSocket = io("http://localhost:3001", {
-          auth: { token: user.token },
-          transports: ['polling'], // Usar apenas polling por enquanto
-          timeout: 20000,
-          reconnection: true,
-          reconnectionAttempts: 3,
-          reconnectionDelay: 1000,
-          forceNew: true
-        });
+    if (!user) return;
 
-        console.log('🔌 Socket.IO criado, tentando conectar...');
+    axios
+      .get("/api/users/online")
+      .then((res) => {
+        const list = (res?.data || []).filter(
+          (u) => u.device !== user.user.device
+        );
+        setContacts(list);
+      })
+      .catch(() => {
+        const list = MOCK_CONTACTS.filter((u) => u.device !== user.user.device);
+        setContacts(list);
+      });
+  }, [user]);
 
-        newSocket.on("connect", () => {
-          console.log("✅ Conectado ao servidor Socket.IO");
-          console.log("Socket ID:", newSocket.id);
-          setSuccess("Conectado ao servidor de chamadas!");
-          
-          // Solicitar lista de usuários conectados explicitamente
-          console.log("📋 Solicitando lista de usuários conectados...");
-        });
+  useEffect(() => {
+    if (!user) return;
+    if (ua) return;
 
-        newSocket.on("connect_error", (error) => {
-          console.error("❌ Erro de conexão Socket.IO:", error);
-          console.error("Detalhes do erro:", error.message, error.description, error.context);
-          setError(`Erro ao conectar no servidor: ${error.message}`);
-        });
+    const socket = new JsSIP.WebSocketInterface(SIP_WS_URI);
+    const config = {
+      sockets: [socket],
+      uri: `sip:${user.user.device}@${SIP_REALM}`,
+      authorization_user: user.user.device,
+      password: SIP_PASSWORD_DEFAULT,
+      display_name: user.user.name,
+      session_timers: false,
+      register: true,
+      register_expires: 300,
+      realm: SIP_REALM,
+    };
 
-        newSocket.on("disconnect", (reason) => {
-          console.log("🔌 Desconectado do Socket.IO:", reason);
-          setSuccess("");
-        });
+    const _ua = new JsSIP.UA(config);
 
-        // Logs adicionais para debug
-        newSocket.on("connecting", () => {
-          console.log("🔄 Conectando ao Socket.IO...");
-        });
+    _ua.on("connected", () => setSipStatus("connected"));
+    _ua.on("disconnected", () => setSipStatus("disconnected"));
+    _ua.on("registered", () => setSipStatus("connected"));
+    _ua.on("unregistered", () => setSipStatus("disconnected"));
 
-        newSocket.on("reconnect", (attemptNumber) => {
-          console.log("🔄 Reconectado ao Socket.IO após", attemptNumber, "tentativas");
-        });
+    _ua.on("newRTCSession", (e) => {
+      const session = e.session;
 
-        newSocket.on("reconnect_attempt", (attemptNumber) => {
-          console.log("🔄 Tentativa de reconexão", attemptNumber);
-        });
-
-        newSocket.on("reconnect_failed", () => {
-          console.log("❌ Falha na reconexão ao Socket.IO");
-        });
-
-      newSocket.on("userConnected", (data) => {
-        console.log("👤 Evento userConnected:", data);
-        setConnectedUsers((prev) => {
-          const exists = prev.find((u) => u.id === data.user.id);
-          if (!exists) {
-            console.log("➕ Adicionando usuário:", data.user);
-            return [...prev, data.user];
+      session.on("peerconnection", (ev) => {
+        const pc = ev.peerconnection;
+        pc.addEventListener("track", (t) => {
+          const stream = t.streams && t.streams[0];
+          if (stream && remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = stream;
           }
-          console.log("⚠️ Usuário já existe na lista:", data.user);
-          return prev;
         });
       });
 
-      newSocket.on("userDisconnected", (data) => {
-        console.log("👋 Evento userDisconnected:", data);
-        setConnectedUsers((prev) => {
-          const filtered = prev.filter((u) => u.id !== data.userId);
-          console.log("➖ Lista após remoção:", filtered);
-          return filtered;
+      session.on("ended", () => {
+        setCurrentCall(null);
+        setIncoming(null);
+      });
+      session.on("failed", () => {
+        setCurrentCall(null);
+        setIncoming(null);
+      });
+
+      if (session.direction === "incoming") {
+        const from = session.remote_identity;
+        setIncoming({
+          session,
+          fromDevice: from?.uri?.user || "?",
+          fromName: from?.display_name || from?.uri?.user || "Desconhecido",
         });
-      });
+      } else {
+      }
+    });
 
-      newSocket.on("connectedUsers", (users) => {
-        console.log("📋 Evento connectedUsers:", users);
-        console.log("📋 Tipo:", typeof users, "Array:", Array.isArray(users), "Length:", users?.length);
-        setConnectedUsers(users || []);
-      });
+    setSipStatus("connecting");
+    _ua.start();
+    setUa(_ua);
 
-      // Evento correto que o backend envia
-      newSocket.on("users_online", (users) => {
-        console.log("🟢 Evento users_online recebido:", users);
-        console.log("🟢 Tipo:", typeof users, "Array:", Array.isArray(users), "Length:", users?.length);
-        if (Array.isArray(users)) {
-          console.log("🟢 Definindo connectedUsers com:", users);
-          setConnectedUsers(users);
-        } else {
-          console.error("❌ users_online não é um array:", users);
-        }
-      });
+    return () => {
+      try {
+        _ua.stop();
+      } catch {}
+      setUa(null);
+      setSipStatus("disconnected");
+    };
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-      newSocket.on("incoming_call", (callData) => {
-        console.log("📞 Chamada recebida:", callData);
-        setIncomingCall(callData);
-      });
+  useEffect(() => {
+    if (!user) return;
 
-      newSocket.on("call_answered", (callData) => {
-        console.log("✅ Chamada atendida:", callData);
-        setCurrentCall(callData);
-        setIncomingCall(null);
-        setSuccess("Chamada estabelecida!");
-      });
+    let stop = false;
 
-      newSocket.on("call_rejected", (callData) => {
-        console.log("❌ Chamada rejeitada:", callData);
-        setCurrentCall(null);
-        setIncomingCall(null);
-        setError("Chamada rejeitada");
-      });
+    async function fetchStates() {
+      try {
+        // Usar o backend como proxy para evitar problemas de CORS
+        const res = await axios.get('/api/asterisk/endpoints');
+        const endpoints = res.data;
 
-      newSocket.on("call_ended", (callData) => {
-        console.log("🔚 Chamada encerrada:", callData);
-        setCurrentCall(null);
-        setIncomingCall(null);
-        setSuccess("Chamada encerrada");
-      });
+        const map = {};
+        const want = new Set([
+          user.user.device,
+          ...contacts.map((c) => c.device),
+        ]);
+        endpoints.forEach((ep) => {
+          if (ep.technology !== "PJSIP") return;
+          const dev = (ep.resource || "").split("/")[1] || ep.resource;
+          if (want.has(dev)) {
+            map[dev] = (ep.state || "unknown").toLowerCase();
+          }
+        });
 
-      newSocket.on("call_error", (error) => {
-        console.error("❌ Erro na chamada:", error);
-        setError(`Erro na chamada: ${error.message}`);
-        setCurrentCall(null);
-        setIncomingCall(null);
-      });
-
-      newSocket.on("error", (error) => {
-        console.error("Erro do socket:", error);
-        setError(`Erro: ${error.message}`);
-      });
-
-        setSocket(newSocket);
-      } catch (error) {
-        console.error('❌ Erro ao criar Socket.IO:', error);
-        setError('Erro ao conectar no servidor');
+        want.forEach((d) => {
+          if (!map[d]) map[d] = "unknown";
+        });
+        if (!stop) setDeviceState(map);
+      } catch (e) {
+        if (!stop) setDeviceState((prev) => prev);
       }
     }
 
-    // Cleanup quando o componente for desmontado ou user mudar
+    fetchStates();
+    const id = setInterval(fetchStates, 5000);
     return () => {
-      if (socket) {
-        console.log('🧹 Limpando conexão Socket.IO');
-        socket.disconnect();
-      }
+      stop = true;
+      clearInterval(id);
     };
-  }, [user]); // Removido socket das dependências para evitar loops
+  }, [user, contacts]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
-
+    setErr("");
+    setInfo("");
     try {
-      const response = await axios.post("/api/users/login", loginForm);
-      const userData = response.data;
-
-      // Salvar no localStorage
-      localStorage.setItem('callSystemUser', JSON.stringify(userData));
-      console.log('💾 Usuário salvo no localStorage');
-
-      setUser(userData);
-      setSuccess("Login realizado com sucesso!");
-      setLoginForm({ username: "", password: "" });
+      const { data } = await axios.post("/api/users/login", loginForm);
+      localStorage.setItem("callSystemUser", JSON.stringify(data));
+      setUser(data);
+      setInfo("Login ok");
     } catch (error) {
-      console.error("Erro no login:", error);
-      setError(error.response?.data?.message || "Erro ao fazer login");
+      setErr(error?.response?.data?.message || "Erro no login");
     }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
-
+    setErr("");
+    setInfo("");
     try {
-      const response = await axios.post("/api/users/register", registerForm);
-      setSuccess("Usuário registrado com sucesso! Faça login.");
+      await axios.post("/api/users/register", registerForm);
+      setInfo("Registrado! Faça login.");
       setRegisterForm({ name: "", username: "", password: "", device: "" });
       setIsRegistering(false);
     } catch (error) {
-      console.error("Erro no registro:", error);
-      setError(error.response?.data?.message || "Erro ao registrar usuário");
+      setErr(error?.response?.data?.message || "Erro ao registrar");
     }
   };
 
-  const handleLogout = () => {
-    if (socket) {
-      socket.disconnect();
-      setSocket(null);
-    }
-    
-    // Limpar localStorage
-    localStorage.removeItem('callSystemUser');
-    console.log('🗑️ Dados do usuário removidos do localStorage');
-    
-    setUser(null);
-    setConnectedUsers([]);
-    setIncomingCall(null);
+  const logout = () => {
+    try {
+      ua?.stop();
+    } catch {}
+    setUa(null);
     setCurrentCall(null);
-    setSuccess("Logout realizado com sucesso!");
+    setIncoming(null);
+    setUser(null);
+    setDeviceState({});
+    setContacts([]);
+    setSipStatus("disconnected");
+    localStorage.removeItem("callSystemUser");
   };
 
-  const initiateCall = (targetUser) => {
-    if (socket && targetUser) {
-      console.log("🔥 INICIANDO CHAMADA:");
-      console.log("📞 Target user:", targetUser);
-      console.log("📞 Target user ID:", targetUser.id || targetUser.userId);
-      console.log("📞 Current user ID:", user?.user?.id);
-      console.log("📞 Lista atual de conectados:", connectedUsers);
-      
-      socket.emit("call_user", { targetUserId: targetUser.id || targetUser.userId });
-      setCallDialog({ open: false, targetUser: null });
-      setSuccess(`Chamando ${targetUser.name}...`);
-    } else {
-      console.error("❌ Socket ou targetUser inválido:", { socket: !!socket, targetUser });
+  const placeCall = (target) => {
+    if (!ua || sipStatus !== "connected") {
+      setErr("SIP não conectado");
+      return;
+    }
+    setErr("");
+    const uri = `sip:${target.device}@${SIP_REALM}`;
+
+    const options = {
+      mediaConstraints: { audio: true, video: false },
+      rtcOfferConstraints: {
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      },
+      rtcConfiguration: {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      },
+    };
+
+    const session = ua.call(uri, options);
+    setCurrentCall({
+      session,
+      direction: "outgoing",
+      peerLabel: `${target.name} (${target.device})`,
+    });
+  };
+
+  const answer = () => {
+    if (!incoming?.session) return;
+    incoming.session.answer({
+      mediaConstraints: { audio: true, video: false },
+      rtcOfferConstraints: {
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      },
+      rtcConfiguration: {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      },
+    });
+    setCurrentCall({
+      session: incoming.session,
+      direction: "incoming",
+      peerLabel: `${incoming.fromName} (${incoming.fromDevice})`,
+    });
+    setIncoming(null);
+  };
+
+  const hangup = () => {
+    const sess = currentCall?.session || incoming?.session;
+    if (!sess) return;
+    try {
+      sess.terminate();
+    } catch {}
+    setCurrentCall(null);
+    setIncoming(null);
+  };
+
+  const badgeFor = (dev) => {
+    const st = deviceState[dev] || "unknown";
+    const color =
+      st === "online"
+        ? "success"
+        : st === "offline" || st === "unavailable"
+        ? "error"
+        : "default";
+
+    return (
+      <Chip
+        label={st}
+        color={color}
+        size="small"
+        sx={{
+          minWidth: 70,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          fontSize: 11,
+        }}
+      />
+    );
+  };
+
+  // Funções do Discador
+  const openDialer = () => {
+    setDialerOpen(true);
+    setDialedNumber("");
+  };
+
+  const closeDialer = () => {
+    setDialerOpen(false);
+    setDialedNumber("");
+  };
+
+  const addDigit = (digit) => {
+    if (dialedNumber.length < 10) {
+      setDialedNumber((prev) => prev + digit);
     }
   };
 
-  const answerCall = () => {
-    if (socket && incomingCall) {
-      console.log("Atendendo chamada:", incomingCall);
-      socket.emit("answer_call", { callId: incomingCall.callId });
-    }
+  const removeDigit = () => {
+    setDialedNumber((prev) => prev.slice(0, -1));
   };
 
-  const rejectCall = () => {
-    if (socket && incomingCall) {
-      console.log("Rejeitando chamada:", incomingCall);
-      socket.emit("reject_call", { callId: incomingCall.callId });
-      setIncomingCall(null);
+  const dialNumber = () => {
+    if (!dialedNumber.trim()) {
+      setErr("Digite um número para discar");
+      return;
     }
+
+    if (!ua || sipStatus !== "connected") {
+      setErr("SIP não conectado");
+      return;
+    }
+
+    setErr("");
+    const uri = `sip:${dialedNumber}@${SIP_REALM}`;
+
+    const options = {
+      mediaConstraints: { audio: true, video: false },
+      rtcOfferConstraints: {
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      },
+      rtcConfiguration: {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      },
+    };
+
+    const session = ua.call(uri, options);
+    setCurrentCall({
+      session,
+      direction: "outgoing",
+      peerLabel: `Ramal ${dialedNumber}`,
+    });
+
+    closeDialer();
   };
 
-  const endCall = () => {
-    if (socket && currentCall) {
-      console.log("Encerrando chamada:", currentCall);
-      socket.emit("hangup_call", { callId: currentCall.callId });
-    }
-  };
-
-  // Tela de Login/Registro
   if (!user) {
     return (
-      <Container maxWidth="sm" sx={{ mt: 6, mb: 4 }}>
-        <Paper
-          elevation={8}
-          sx={{ p: 5, borderRadius: 3, textAlign: "center" }}
+      <div className="login-container">
+        <Card
+          sx={{ maxWidth: 450, width: "100%", borderRadius: 3, boxShadow: 4 }}
         >
-          <Box mb={4}>
-            <PhoneIcon sx={{ fontSize: 60, color: "primary.main", mb: 2 }} />
+          <CardContent sx={{ p: 4 }}>
             <Typography
-              variant="h3"
-              component="h1"
+              variant="h4"
+              align="center"
               gutterBottom
-              fontWeight="bold"
-              color="primary"
+              className="gradient-text"
+              sx={{ mb: 3 }}
             >
               CallSystem
             </Typography>
-            <Typography variant="subtitle1" color="textSecondary">
-              Sistema de Chamadas VoIP Profissional
+            <Typography
+              variant="subtitle2"
+              align="center"
+              color="text.secondary"
+              sx={{ mb: 3 }}
+            >
+              Sistema de chamadas WebRTC
             </Typography>
-          </Box>
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
-              {error}
-            </Alert>
-          )}
+            {err && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {err}
+              </Alert>
+            )}
+            {info && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {info}
+              </Alert>
+            )}
 
-          {success && (
-            <Alert severity="success" sx={{ mb: 3, borderRadius: 2 }}>
-              {success}
-            </Alert>
-          )}
-
-          {!isRegistering ? (
-            <Box component="form" onSubmit={handleLogin}>
-              <Typography variant="h5" gutterBottom mb={3} fontWeight="bold">
-                Entrar na Plataforma
-              </Typography>
-              <TextField
-                fullWidth
-                label="Nome de Usuário"
-                value={loginForm.username}
-                onChange={(e) =>
-                  setLoginForm({ ...loginForm, username: e.target.value })
-                }
-                margin="normal"
-                required
-                variant="outlined"
-                sx={{ mb: 2 }}
-              />
-              <TextField
-                fullWidth
-                label="Senha"
-                type="password"
-                value={loginForm.password}
-                onChange={(e) =>
-                  setLoginForm({ ...loginForm, password: e.target.value })
-                }
-                margin="normal"
-                required
-                variant="outlined"
-                sx={{ mb: 3 }}
-              />
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                size="large"
-                sx={{
-                  py: 1.8,
-                  mb: 2,
-                  borderRadius: 2,
-                  fontWeight: "bold",
-                  fontSize: "1.1rem",
-                }}
-              >
-                Fazer Login
-              </Button>
-              <Button
-                fullWidth
-                variant="text"
-                onClick={() => setIsRegistering(true)}
-                sx={{ borderRadius: 2, fontWeight: "bold" }}
-              >
-                Criar Nova Conta
-              </Button>
-            </Box>
-          ) : (
-            <Box component="form" onSubmit={handleRegister}>
-              <Typography variant="h5" gutterBottom mb={3} fontWeight="bold">
-                Criar Nova Conta
-              </Typography>
-              <TextField
-                fullWidth
-                label="Nome Completo"
-                value={registerForm.name}
-                onChange={(e) =>
-                  setRegisterForm({ ...registerForm, name: e.target.value })
-                }
-                margin="normal"
-                required
-                variant="outlined"
-                sx={{ mb: 1 }}
-              />
-              <TextField
-                fullWidth
-                label="Nome de Usuário"
-                value={registerForm.username}
-                onChange={(e) =>
-                  setRegisterForm({ ...registerForm, username: e.target.value })
-                }
-                margin="normal"
-                required
-                variant="outlined"
-                sx={{ mb: 1 }}
-              />
-              <TextField
-                fullWidth
-                label="Senha"
-                type="password"
-                value={registerForm.password}
-                onChange={(e) =>
-                  setRegisterForm({ ...registerForm, password: e.target.value })
-                }
-                margin="normal"
-                required
-                variant="outlined"
-                sx={{ mb: 1 }}
-              />
-              <TextField
-                fullWidth
-                label="Ramal SIP (ex: 3005)"
-                value={registerForm.device}
-                onChange={(e) =>
-                  setRegisterForm({ ...registerForm, device: e.target.value })
-                }
-                margin="normal"
-                required
-                variant="outlined"
-                helperText="Digite o número do seu ramal/device SIP configurado no Asterisk"
-                sx={{ mb: 3 }}
-              />
-              <Button
-                type="submit"
-                fullWidth
-                variant="contained"
-                size="large"
-                sx={{
-                  py: 1.8,
-                  mb: 2,
-                  borderRadius: 2,
-                  fontWeight: "bold",
-                  fontSize: "1.1rem",
-                }}
-              >
-                Criar Conta
-              </Button>
-              <Button
-                fullWidth
-                variant="text"
-                onClick={() => setIsRegistering(false)}
-                sx={{ borderRadius: 2, fontWeight: "bold" }}
-              >
-                Voltar ao Login
-              </Button>
-            </Box>
-          )}
-        </Paper>
-      </Container>
+            {!isRegistering ? (
+              <form onSubmit={handleLogin}>
+                <TextField
+                  fullWidth
+                  label="Usuário"
+                  margin="normal"
+                  value={loginForm.username}
+                  onChange={(e) =>
+                    setLoginForm({ ...loginForm, username: e.target.value })
+                  }
+                  required
+                  sx={{ mb: 2 }}
+                />
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Senha"
+                  margin="normal"
+                  value={loginForm.password}
+                  onChange={(e) =>
+                    setLoginForm({ ...loginForm, password: e.target.value })
+                  }
+                  required
+                  sx={{ mb: 3 }}
+                />
+                <Button
+                  fullWidth
+                  type="submit"
+                  variant="contained"
+                  size="large"
+                  sx={{
+                    py: 1.5,
+                    mb: 2,
+                    background:
+                      "linear-gradient(45deg, #667eea 30%, #764ba2 90%)",
+                    "&:hover": {
+                      background:
+                        "linear-gradient(45deg, #5a6fd8 30%, #6a4190 90%)",
+                    },
+                  }}
+                >
+                  Entrar
+                </Button>
+                <Button
+                  fullWidth
+                  variant="text"
+                  onClick={() => setIsRegistering(true)}
+                  startIcon={<PersonAdd />}
+                >
+                  Criar conta
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegister}>
+                <TextField
+                  fullWidth
+                  label="Nome"
+                  margin="normal"
+                  value={registerForm.name}
+                  onChange={(e) =>
+                    setRegisterForm({ ...registerForm, name: e.target.value })
+                  }
+                  required
+                  sx={{ mb: 2 }}
+                />
+                <TextField
+                  fullWidth
+                  label="Usuário"
+                  margin="normal"
+                  value={registerForm.username}
+                  onChange={(e) =>
+                    setRegisterForm({
+                      ...registerForm,
+                      username: e.target.value,
+                    })
+                  }
+                  required
+                  sx={{ mb: 2 }}
+                />
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Senha"
+                  margin="normal"
+                  value={registerForm.password}
+                  onChange={(e) =>
+                    setRegisterForm({
+                      ...registerForm,
+                      password: e.target.value,
+                    })
+                  }
+                  required
+                  sx={{ mb: 2 }}
+                />
+                <TextField
+                  fullWidth
+                  label="Ramal (ex: 3005)"
+                  margin="normal"
+                  value={registerForm.device}
+                  onChange={(e) =>
+                    setRegisterForm({ ...registerForm, device: e.target.value })
+                  }
+                  required
+                  sx={{ mb: 3 }}
+                />
+                <Button
+                  fullWidth
+                  type="submit"
+                  variant="contained"
+                  size="large"
+                  sx={{
+                    py: 1.5,
+                    mb: 2,
+                    background:
+                      "linear-gradient(45deg, #667eea 30%, #764ba2 90%)",
+                  }}
+                >
+                  Registrar
+                </Button>
+                <Button
+                  fullWidth
+                  variant="text"
+                  onClick={() => setIsRegistering(false)}
+                >
+                  Voltar
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
-  // Interface Principal - Dashboard de Chamadas
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {/* Header do Usuário */}
-      <Paper
-        elevation={4}
-        sx={{
-          p: 4,
-          mb: 4,
-          borderRadius: 3,
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          color: "white",
-        }}
-      >
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Box>
-            <Typography variant="h4" fontWeight="bold" gutterBottom>
-              🎯 Bem-vindo, {user.user.name}!
-            </Typography>
-            <Typography variant="h6">
-              📞 Ramal: {user.user.device} • ✅ Status: Conectado
-            </Typography>
-          </Box>
-          <Button
-            variant="contained"
-            color="secondary"
-            onClick={handleLogout}
-            sx={{ borderRadius: 3, px: 3, py: 1.5, fontWeight: "bold" }}
-          >
-            Sair
-          </Button>
-        </Box>
-      </Paper>
-
-      {/* Alertas de Sistema */}
-      {error && (
-        <Alert
-          severity="error"
-          sx={{ mb: 3, borderRadius: 2, fontSize: "1.1rem" }}
-        >
-          ❌ {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert
-          severity="success"
-          sx={{ mb: 3, borderRadius: 2, fontSize: "1.1rem" }}
-        >
-          ✅ {success}
-        </Alert>
-      )}
-
-      {/* Área de Chamadas Ativas */}
-      {currentCall && (
-        <Paper
-          elevation={6}
-          sx={{
-            p: 4,
-            mb: 4,
-            bgcolor: "success.main",
-            color: "white",
-            borderRadius: 3,
-            textAlign: "center",
-          }}
-        >
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            📞 CHAMADA ATIVA
-          </Typography>
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            Call ID: {currentCall.callId}
-          </Typography>
-          <Button
-            variant="contained"
-            color="error"
-            size="large"
-            startIcon={<PhoneOffIcon />}
-            onClick={endCall}
-            sx={{
-              borderRadius: 3,
-              px: 5,
-              py: 2,
-              fontWeight: "bold",
-              fontSize: "1.2rem",
-            }}
-          >
-            Encerrar Chamada
-          </Button>
-        </Paper>
-      )}
-
-      {/* Chamada Recebida */}
-      {incomingCall && (
-        <Paper
-          elevation={6}
-          sx={{
-            p: 4,
-            mb: 4,
-            bgcolor: "warning.main",
-            color: "white",
-            borderRadius: 3,
-            textAlign: "center",
-          }}
-        >
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            🔔 CHAMADA RECEBIDA!
-          </Typography>
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            📱 De: {incomingCall.callerName || incomingCall.callerDevice}
-          </Typography>
-          <Box>
-            <Button
-              variant="contained"
-              color="success"
-              size="large"
-              startIcon={<CheckCircleIcon />}
-              onClick={answerCall}
+    <div className="app-container">
+      <Container maxWidth="lg" className="main-content">
+        <Box sx={{ py: 3, display: "flex", flexDirection: "column", gap: 3 }}>
+          <Paper className="header-card" sx={{ p: 3 }}>
+            <Box
               sx={{
-                mr: 3,
-                borderRadius: 3,
-                px: 4,
-                py: 2,
-                fontWeight: "bold",
-                fontSize: "1.1rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
-              ✅ Atender
-            </Button>
-            <Button
-              variant="contained"
-              color="error"
-              size="large"
-              startIcon={<CancelIcon />}
-              onClick={rejectCall}
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: "bold", mb: 0.5 }}>
+                  Bem-vindo, {user.user.name}
+                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Ramal {user.user.device}
+                  </Typography>
+                  <Chip
+                    label={`SIP ${sipStatus}`}
+                    color={sipStatus === "connected" ? "success" : "default"}
+                    size="small"
+                    icon={
+                      sipStatus === "connected" ? <Phone /> : <PhoneDisabled />
+                    }
+                  />
+                </Box>
+              </Box>
+              <Box sx={{ display: "flex", gap: 2 }}>
+                <Button
+                  variant="contained"
+                  onClick={openDialer}
+                  startIcon={<Dialpad />}
+                  disabled={sipStatus !== "connected"}
+                  sx={{
+                    background:
+                      sipStatus === "connected"
+                        ? "linear-gradient(45deg, #4caf50 30%, #66bb6a 90%)"
+                        : undefined,
+                    "&:hover": {
+                      background:
+                        sipStatus === "connected"
+                          ? "linear-gradient(45deg, #43a047 30%, #5cb85c 90%)"
+                          : undefined,
+                    },
+                  }}
+                >
+                  Discador
+                </Button>
+                <IconButton
+                  onClick={logout}
+                  color="primary"
+                  sx={{
+                    background:
+                      "linear-gradient(45deg, #667eea 30%, #764ba2 90%)",
+                    color: "white",
+                    "&:hover": {
+                      background:
+                        "linear-gradient(45deg, #5a6fd8 30%, #6a4190 90%)",
+                    },
+                  }}
+                >
+                  <ExitToApp />
+                </IconButton>
+              </Box>
+            </Box>
+          </Paper>
+
+          {err && (
+            <Alert severity="error" onClose={() => setErr("")}>
+              {err}
+            </Alert>
+          )}
+          {info && (
+            <Alert severity="success" onClose={() => setInfo("")}>
+              {info}
+            </Alert>
+          )}
+
+          {(currentCall || incoming) && (
+            <Paper className="content-card" sx={{ p: 3 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: "bold", mb: 1 }}>
+                    {currentCall
+                      ? currentCall.direction === "outgoing"
+                        ? `Falando com ${currentCall.peerLabel}`
+                        : `Chamada de ${currentCall.peerLabel}`
+                      : `Chamada de ${incoming.fromName} (${incoming.fromDevice})`}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {currentCall ? "Chamada ativa" : "Chamada recebida"}
+                  </Typography>
+                </Box>
+                <Box className="call-controls">
+                  {incoming && (
+                    <Button
+                      variant="contained"
+                      color="success"
+                      onClick={answer}
+                      startIcon={<Call />}
+                      size="large"
+                    >
+                      Atender
+                    </Button>
+                  )}
+                  <Button
+                    variant="contained"
+                    color="error"
+                    onClick={hangup}
+                    startIcon={<CallEnd />}
+                    size="large"
+                  >
+                    Encerrar
+                  </Button>
+                </Box>
+              </Box>
+              <audio ref={remoteAudioRef} autoPlay />
+            </Paper>
+          )}
+
+          <Paper className="content-card" sx={{ p: 3 }}>
+            <Box
               sx={{
-                borderRadius: 3,
-                px: 4,
-                py: 2,
-                fontWeight: "bold",
-                fontSize: "1.1rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                mb: 3,
               }}
             >
-              ❌ Rejeitar
-            </Button>
-          </Box>
-        </Paper>
-      )}
-
-      {/* Lista de Contatos Online */}
-      <Paper elevation={4} sx={{ borderRadius: 3 }}>
-        <Box
-          sx={{
-            p: 3,
-            bgcolor: "primary.main",
-            color: "white",
-            borderRadius: "12px 12px 0 0",
-          }}
-        >
-          <Typography
-            variant="h5"
-            fontWeight="bold"
-            display="flex"
-            alignItems="center"
-          >
-            <PeopleIcon sx={{ mr: 2, fontSize: 30 }} />
-            👥 Contatos Online ({connectedUsers.length})
-          </Typography>
-        </Box>
-
-        <Box sx={{ p: 3 }}>
-          {connectedUsers.length === 0 ? (
-            <Box textAlign="center" py={6}>
-              <Typography variant="h6" color="textSecondary">
-                😴 Nenhum usuário online no momento
+              <Typography variant="h6" sx={{ fontWeight: "bold" }}>
+                Contatos ({contacts.length})
               </Typography>
-              <Typography variant="body1" color="textSecondary" mt={1}>
-                Aguarde outros usuários se conectarem...
+              <Typography variant="caption" color="text.secondary">
+                Ações
               </Typography>
             </Box>
-          ) : (
             <List>
-              {connectedUsers.map((connectedUser) => (
-                <Paper
-                  key={connectedUser.id}
-                  elevation={2}
-                  sx={{ mb: 2, borderRadius: 2, border: "1px solid #e0e0e0" }}
-                >
-                  <ListItem sx={{ py: 2 }}>
+              {contacts.map((c, index) => (
+                <React.Fragment key={c.id}>
+                  <ListItem sx={{ px: 0 }}>
+                    <ListItemAvatar>
+                      <Avatar className="contact-avatar">
+                        <Person />
+                      </Avatar>
+                    </ListItemAvatar>
                     <ListItemText
                       primary={
                         <Typography
-                          variant="h6"
-                          fontWeight="bold"
-                          sx={{ display: "flex", alignItems: "center" }}
+                          variant="subtitle1"
+                          sx={{ fontWeight: "medium" }}
                         >
-                          👤 {connectedUser.name}
+                          {c.name}
                         </Typography>
                       }
-                      secondary={
-                        <Typography variant="body1" color="textSecondary">
-                          📞 Ramal: {connectedUser.device} • 🆔 ID:{" "}
-                          {connectedUser.id}
-                        </Typography>
-                      }
+                      secondary={`Ramal ${c.device}`}
                     />
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Chip
-                        label="🟢 Online"
-                        color="success"
-                        sx={{ fontWeight: "bold" }}
-                      />
-                      {connectedUser.id !== user.user.id && !currentCall && (
+                    <ListItemSecondaryAction>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 2 }}
+                      >
+                        {badgeFor(c.device)}
                         <Button
                           variant="contained"
-                          color="primary"
-                          size="large"
-                          startIcon={<PhoneIcon />}
-                          onClick={() =>
-                            setCallDialog({
-                              open: true,
-                              targetUser: connectedUser,
-                            })
-                          }
-                          sx={{ borderRadius: 2, px: 3, fontWeight: "bold" }}
+                          disabled={sipStatus !== "connected"}
+                          onClick={() => placeCall(c)}
+                          startIcon={<Phone />}
+                          sx={{
+                            background:
+                              sipStatus === "connected"
+                                ? "linear-gradient(45deg, #667eea 30%, #764ba2 90%)"
+                                : undefined,
+                          }}
                         >
-                          📞 Chamar
+                          Chamar
                         </Button>
-                      )}
-                    </Box>
+                      </Box>
+                    </ListItemSecondaryAction>
                   </ListItem>
-                </Paper>
+                  {index < contacts.length - 1 && (
+                    <Divider variant="inset" component="li" />
+                  )}
+                </React.Fragment>
               ))}
             </List>
-          )}
+          </Paper>
         </Box>
-      </Paper>
+      </Container>
 
-      {/* Dialog de Confirmação de Chamada */}
+      {/* Modal do Discador */}
       <Dialog
-        open={callDialog.open}
-        onClose={() => setCallDialog({ open: false, targetUser: null })}
-        maxWidth="sm"
+        open={dialerOpen}
+        onClose={closeDialer}
+        maxWidth="xs"
         fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
+          },
+        }}
       >
-        <DialogTitle sx={{ textAlign: "center", pt: 4, pb: 2 }}>
-          <PhoneIcon sx={{ fontSize: 60, color: "primary.main", mb: 2 }} />
-          <Typography variant="h4" fontWeight="bold">
-            📞 Fazer Chamada
+        <DialogTitle>
+          <Typography
+            variant="h6"
+            align="center"
+            sx={{ fontWeight: "bold", color: "#333" }}
+          >
+            <Dialpad sx={{ mr: 1, verticalAlign: "middle" }} />
+            Discador
           </Typography>
         </DialogTitle>
-        <DialogContent sx={{ textAlign: "center", pb: 2 }}>
-          <Typography variant="h5" sx={{ mb: 2 }}>
-            Deseja ligar para <strong>{callDialog.targetUser?.name}</strong>?
-          </Typography>
-          <Typography variant="h6" color="textSecondary">
-            📞 Ramal: {callDialog.targetUser?.device}
-          </Typography>
+        <DialogContent sx={{ pb: 1 }}>
+          {/* Display do número */}
+          <Box
+            sx={{
+              backgroundColor: "#fff",
+              borderRadius: 2,
+              p: 2,
+              mb: 3,
+              textAlign: "center",
+              minHeight: 60,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "2px solid #e0e0e0",
+            }}
+          >
+            <Typography
+              variant="h4"
+              sx={{
+                fontFamily: "monospace",
+                color: dialedNumber ? "#333" : "#999",
+                letterSpacing: 2,
+              }}
+            >
+              {dialedNumber || "Digite o ramal"}
+            </Typography>
+          </Box>
+
+          {/* Teclado numérico */}
+          <Grid container spacing={1}>
+            {[
+              ["1", "2", "3"],
+              ["4", "5", "6"],
+              ["7", "8", "9"],
+              ["*", "0", "#"],
+            ].map((row, rowIndex) => (
+              <Grid item xs={12} key={rowIndex}>
+                <Box sx={{ display: "flex", gap: 1, justifyContent: "center" }}>
+                  {row.map((digit) => (
+                    <Button
+                      key={digit}
+                      variant="contained"
+                      onClick={() => addDigit(digit)}
+                      sx={{
+                        minWidth: 70,
+                        height: 70,
+                        fontSize: "1.5rem",
+                        fontWeight: "bold",
+                        borderRadius: 2,
+                        background:
+                          "linear-gradient(45deg, #667eea 30%, #764ba2 90%)",
+                        "&:hover": {
+                          background:
+                            "linear-gradient(45deg, #5a6fd8 30%, #6a4190 90%)",
+                        },
+                        boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
+                      }}
+                    >
+                      {digit}
+                    </Button>
+                  ))}
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+
+          {/* Botão de apagar */}
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={removeDigit}
+              disabled={!dialedNumber}
+              startIcon={<Backspace />}
+              sx={{
+                minWidth: 150,
+                height: 50,
+                borderColor: "#667eea",
+                color: "#667eea",
+                "&:hover": {
+                  borderColor: "#5a6fd8",
+                  backgroundColor: "rgba(102, 126, 234, 0.1)",
+                },
+              }}
+            >
+              Apagar
+            </Button>
+          </Box>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: "center", pb: 4, gap: 2 }}>
+        <DialogActions sx={{ p: 3, pt: 1 }}>
           <Button
-            onClick={() => setCallDialog({ open: false, targetUser: null })}
+            onClick={closeDialer}
             variant="outlined"
-            size="large"
-            sx={{ borderRadius: 3, px: 4, py: 1.5, fontWeight: "bold" }}
+            sx={{
+              flex: 1,
+              mr: 1,
+              height: 50,
+              borderColor: "#999",
+              color: "#666",
+            }}
           >
             Cancelar
           </Button>
           <Button
-            onClick={() => initiateCall(callDialog.targetUser)}
+            onClick={dialNumber}
             variant="contained"
-            size="large"
-            startIcon={<PhoneIcon />}
-            sx={{ borderRadius: 3, px: 4, py: 1.5, fontWeight: "bold" }}
+            disabled={!dialedNumber.trim()}
+            startIcon={<Phone />}
+            sx={{
+              flex: 2,
+              height: 50,
+              background: "linear-gradient(45deg, #4caf50 30%, #66bb6a 90%)",
+              "&:hover": {
+                background: "linear-gradient(45deg, #43a047 30%, #5cb85c 90%)",
+              },
+              "&:disabled": {
+                background: "#ccc",
+              },
+            }}
           >
-            📞 Chamar Agora
+            Ligar
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </div>
   );
 }
-
-export default App;

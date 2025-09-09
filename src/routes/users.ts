@@ -19,6 +19,9 @@ router.use(authenticate);
 
 // Profile routes
 router.get("/profile", userController.getProfile);
+
+// Online users route
+router.get("/online", userController.getOnlineUsers);
 router.put(
   "/profile",
   validateRequest(schemas.updateUser),
@@ -28,11 +31,8 @@ router.put(
 // Admin routes
 router.get(
   "/",
+  authorize(UserType.ADMIN, UserType.ATTENDANT),
   userController.getAllUsers
-);
-router.get(
-  "/online",
-  userController.getOnlineUsers
 );
 router.post(
   "/",
