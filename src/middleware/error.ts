@@ -15,13 +15,11 @@ export const errorHandler = (
     ip: req.ip,
   });
 
-  // Default error
   let error = {
     message: "Internal Server Error",
     status: 500,
   };
 
-  // Prisma errors
   if (err.code === "P2002") {
     error.message = "Duplicate entry found";
     error.status = 409;
@@ -30,7 +28,6 @@ export const errorHandler = (
     error.status = 404;
   }
 
-  // JWT errors
   if (err.name === "JsonWebTokenError") {
     error.message = "Invalid token";
     error.status = 401;
@@ -39,13 +36,11 @@ export const errorHandler = (
     error.status = 401;
   }
 
-  // Validation errors
   if (err.name === "ValidationError") {
     error.message = err.message;
     error.status = 400;
   }
 
-  // Custom errors
   if (err.message && typeof err.status === "number") {
     error.message = err.message;
     error.status = err.status;

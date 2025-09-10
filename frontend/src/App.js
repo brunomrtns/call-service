@@ -25,6 +25,7 @@ import {
   DialogContent,
   DialogActions,
   Grid,
+  Tooltip,
 } from "@mui/material";
 import {
   Phone,
@@ -36,6 +37,7 @@ import {
   Call,
   Dialpad,
   Backspace,
+  Refresh,
 } from "@mui/icons-material";
 import "./App.css";
 
@@ -46,17 +48,6 @@ const SIP_WS_URI = `ws://${ASTERISK_HOST}:8088/asterisk/ws`;
 const SIP_REALM = ASTERISK_HOST;
 
 const SIP_PASSWORD_DEFAULT = "Teste123";
-
-const MOCK_CONTACTS = [
-  { id: 1, name: "Ramal 100", username: "ramal100", device: "100" },
-  { id: 2, name: "Ramal 101", username: "ramal101", device: "101" },
-  { id: 3, name: "Ramal 102", username: "ramal102", device: "102" },
-  { id: 4, name: "Ramal 103", username: "ramal103", device: "103" },
-  { id: 5, name: "Ramal 104", username: "ramal104", device: "104" },
-  { id: 6, name: "Ramal 105", username: "ramal105", device: "105" },
-  { id: 7, name: "Ramal 3005", username: "ramal3005", device: "3005" },
-  { id: 8, name: "Ramal 3006", username: "ramal3006", device: "3006" },
-];
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -76,11 +67,9 @@ export default function App() {
   const remoteAudioRef = useRef(null);
 
   const [contacts, setContacts] = useState([]);
-  const [deviceState, setDeviceState] = useState({});
   const [info, setInfo] = useState("");
   const [err, setErr] = useState("");
 
-  // Discador
   const [dialerOpen, setDialerOpen] = useState(false);
   const [dialedNumber, setDialedNumber] = useState("");
 
@@ -95,19 +84,71 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const requestInterceptor = axios.interceptors.request.use(
+      (config) => {
+        const raw = localStorage.getItem("callSystemUser");
+        if (raw) {
+          try {
+            const data = JSON.parse(raw);
+            if (data.token) {
+              config.headers.Authorization = `Bearer ${data.token}`;
+            }
+          } catch {}
+        }
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
+    );
+
+    const responseInterceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          console.log("Token expirado ou inválido, fazendo logout...");
+
+          localStorage.removeItem("callSystemUser");
+          setUser(null);
+          setContacts([]);
+          setSipStatus("disconnected");
+          setErr("Sessão expirada. Faça login novamente.");
+
+          if (ua) {
+            try {
+              ua.stop();
+            } catch {}
+            setUa(null);
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.request.eject(requestInterceptor);
+      axios.interceptors.response.eject(responseInterceptor);
+    };
+  }, [ua]);
+
+  useEffect(() => {
     if (!user) return;
 
     axios
-      .get("/api/users/online")
+      .get("/api/users/with-sip-status")
       .then((res) => {
         const list = (res?.data || []).filter(
           (u) => u.device !== user.user.device
         );
         setContacts(list);
       })
-      .catch(() => {
-        const list = MOCK_CONTACTS.filter((u) => u.device !== user.user.device);
-        setContacts(list);
+      .catch((error) => {
+        console.error(
+          "Erro ao buscar usuários com status SIP:",
+          error.response?.data || error.message
+        );
+        setErr("Erro ao carregar lista de contatos");
+        setContacts([]);
       });
   }, [user]);
 
@@ -179,48 +220,72 @@ export default function App() {
       setUa(null);
       setSipStatus("disconnected");
     };
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
 
-    let stop = false;
+    let ws = null;
+    let reconnectTimeout = null;
 
-    async function fetchStates() {
-      try {
-        // Usar o backend como proxy para evitar problemas de CORS
-        const res = await axios.get('/api/asterisk/endpoints');
-        const endpoints = res.data;
+    const connectWebSocket = () => {
+      ws = new WebSocket("ws://localhost:3001/ws/device-status");
 
-        const map = {};
-        const want = new Set([
-          user.user.device,
-          ...contacts.map((c) => c.device),
-        ]);
-        endpoints.forEach((ep) => {
-          if (ep.technology !== "PJSIP") return;
-          const dev = (ep.resource || "").split("/")[1] || ep.resource;
-          if (want.has(dev)) {
-            map[dev] = (ep.state || "unknown").toLowerCase();
+      ws.onopen = () => {
+        console.log("WebSocket conectado para status de usuários");
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+
+          if (
+            message.type === "users-with-sip-status" ||
+            message.type === "users-with-sip-status-update"
+          ) {
+            const users = message.data;
+
+            const filteredUsers = users.filter(
+              (u) => u.device !== user.user.device
+            );
+            setContacts(filteredUsers);
+            console.log(
+              `Recebidos ${filteredUsers.length} contatos via WebSocket`
+            );
           }
-        });
+        } catch (error) {
+          console.error("Erro ao processar mensagem WebSocket:", error);
+        }
+      };
 
-        want.forEach((d) => {
-          if (!map[d]) map[d] = "unknown";
-        });
-        if (!stop) setDeviceState(map);
-      } catch (e) {
-        if (!stop) setDeviceState((prev) => prev);
-      }
-    }
+      ws.onclose = () => {
+        console.log(
+          "WebSocket desconectado. Tentando reconectar em 5 segundos..."
+        );
+        reconnectTimeout = setTimeout(connectWebSocket, 5000);
+      };
 
-    fetchStates();
-    const id = setInterval(fetchStates, 5000);
-    return () => {
-      stop = true;
-      clearInterval(id);
+      ws.onerror = (error) => {
+        console.error("Erro no WebSocket:", error);
+      };
     };
-  }, [user, contacts]);
+
+    connectWebSocket();
+
+    return () => {
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [user]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -258,10 +323,31 @@ export default function App() {
     setCurrentCall(null);
     setIncoming(null);
     setUser(null);
-    setDeviceState({});
     setContacts([]);
     setSipStatus("disconnected");
     localStorage.removeItem("callSystemUser");
+  };
+
+  const forceReconnectSip = () => {
+    if (!user || !user.user) return;
+
+    setInfo("Tentando reconectar...");
+
+    // Parar UA atual se existir
+    if (ua) {
+      try {
+        ua.stop();
+      } catch {}
+    }
+
+    // Forçar reset do estado
+    setUa(null);
+    setSipStatus("connecting");
+
+    // Pequeno delay para garantir que o UA foi limpo
+    setTimeout(() => {
+      // O useEffect vai detectar que ua é null e criar uma nova conexão
+    }, 100);
   };
 
   const placeCall = (target) => {
@@ -321,8 +407,8 @@ export default function App() {
     setIncoming(null);
   };
 
-  const badgeFor = (dev) => {
-    const st = deviceState[dev] || "unknown";
+  const badgeFor = (contact) => {
+    const st = contact.sipStatus || "unknown";
     const color =
       st === "online"
         ? "success"
@@ -345,7 +431,6 @@ export default function App() {
     );
   };
 
-  // Funções do Discador
   const openDialer = () => {
     setDialerOpen(true);
     setDialedNumber("");
@@ -740,15 +825,19 @@ export default function App() {
                       <Box
                         sx={{ display: "flex", alignItems: "center", gap: 2 }}
                       >
-                        {badgeFor(c.device)}
+                        {badgeFor(c)}
                         <Button
                           variant="contained"
-                          disabled={sipStatus !== "connected"}
+                          disabled={
+                            sipStatus !== "connected" ||
+                            c.sipStatus !== "online"
+                          }
                           onClick={() => placeCall(c)}
                           startIcon={<Phone />}
                           sx={{
                             background:
-                              sipStatus === "connected"
+                              sipStatus === "connected" &&
+                              c.sipStatus === "online"
                                 ? "linear-gradient(45deg, #667eea 30%, #764ba2 90%)"
                                 : undefined,
                           }}
@@ -768,7 +857,6 @@ export default function App() {
         </Box>
       </Container>
 
-      {/* Modal do Discador */}
       <Dialog
         open={dialerOpen}
         onClose={closeDialer}
@@ -792,7 +880,6 @@ export default function App() {
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pb: 1 }}>
-          {/* Display do número */}
           <Box
             sx={{
               backgroundColor: "#fff",
@@ -819,7 +906,6 @@ export default function App() {
             </Typography>
           </Box>
 
-          {/* Teclado numérico */}
           <Grid container spacing={1}>
             {[
               ["1", "2", "3"],
@@ -857,7 +943,6 @@ export default function App() {
             ))}
           </Grid>
 
-          {/* Botão de apagar */}
           <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
             <Button
               variant="outlined"

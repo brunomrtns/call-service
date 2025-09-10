@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import axios from "axios";
 import { PrismaClient } from "@prisma/client";
 import Database from "@/config/database";
 import { config } from "@/config";
@@ -76,7 +77,6 @@ export class UserService {
     } = createUserRequest;
 
     try {
-      // Check if username or email already exists
       const existingUser = await this.db.callUser.findFirst({
         where: {
           OR: [{ username }, { email }],
@@ -87,10 +87,8 @@ export class UserService {
         throw new Error("Username or email already exists");
       }
 
-      // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      // Generate device if needed
       let device: string | undefined;
       let devicePassword: string | undefined;
 
@@ -212,6 +210,72 @@ export class UserService {
       return users;
     } catch (error) {
       logger.error("Get all users error:", error);
+      throw error;
+    }
+  }
+
+  public async getUsersWithSipStatus(): Promise<any[]> {
+    try {
+      const users = await this.db.callUser.findMany({
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          device: true,
+          type: true,
+        },
+        where: {
+          device: {
+            not: null,
+          },
+        },
+        orderBy: {
+          name: "asc",
+        },
+      });
+
+      const ASTERISK_HOST = "192.168.15.176";
+      const ARI_HTTP_BASE = `http://${ASTERISK_HOST}:8088/asterisk/ari`;
+      const ARI_USER = "admin";
+      const ARI_PASS = "admin";
+
+      let asteriskEndpoints: any[] = [];
+
+      try {
+        const auth = Buffer.from(`${ARI_USER}:${ARI_PASS}`).toString("base64");
+        const response = await axios.get(`${ARI_HTTP_BASE}/endpoints`, {
+          headers: {
+            Authorization: `Basic ${auth}`,
+          },
+          timeout: 5000,
+        });
+
+        asteriskEndpoints = response.data || [];
+      } catch (asteriskError) {
+        logger.error("Erro ao buscar endpoints do Asterisk:", asteriskError);
+      }
+
+      const deviceStatusMap: { [key: string]: string } = {};
+
+      asteriskEndpoints.forEach((endpoint: any) => {
+        if (endpoint.resource && endpoint.state) {
+          const device = endpoint.resource;
+          deviceStatusMap[device] = endpoint.state.toLowerCase();
+        }
+      });
+
+      const usersWithSipStatus = users.map((user) => ({
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        device: user.device,
+        type: user.type,
+        sipStatus: deviceStatusMap[user.device || ""] || "offline",
+      }));
+
+      return usersWithSipStatus;
+    } catch (error) {
+      logger.error("Get users with SIP status error:", error);
       throw error;
     }
   }

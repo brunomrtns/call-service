@@ -6,7 +6,6 @@ import { UserType } from "@/types";
 
 const router = Router();
 
-// Public routes
 router.post("/login", validateRequest(schemas.login), userController.login);
 router.post(
   "/register",
@@ -14,21 +13,19 @@ router.post(
   userController.register
 );
 
-// Protected routes
 router.use(authenticate);
 
-// Profile routes
 router.get("/profile", userController.getProfile);
 
-// Online users route
 router.get("/online", userController.getOnlineUsers);
+
+router.get("/with-sip-status", userController.getUsersWithSipStatus);
 router.put(
   "/profile",
   validateRequest(schemas.updateUser),
   userController.updateProfile
 );
 
-// Admin routes
 router.get(
   "/",
   authorize(UserType.ADMIN, UserType.ATTENDANT),

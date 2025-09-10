@@ -147,11 +147,8 @@ export class UserController {
     res: Response
   ): Promise<void> {
     try {
-      // Para simplicidade, vamos retornar todos os usuários por enquanto
-      // Em um sistema real, você manteria uma lista de usuários conectados via WebSocket/Socket.IO
       const users = await userService.getAllUsers();
 
-      // Filtrar apenas os campos necessários para o frontend
       const onlineUsers = users.map((user) => ({
         id: user.id,
         name: user.name,
@@ -163,6 +160,19 @@ export class UserController {
     } catch (error: any) {
       logger.error("Get online users error:", error);
       res.status(400).json({ error: error.message });
+    }
+  }
+
+  public async getUsersWithSipStatus(
+    req: AuthenticatedRequest,
+    res: Response
+  ): Promise<void> {
+    try {
+      const result = await userService.getUsersWithSipStatus();
+      res.json(result);
+    } catch (error: any) {
+      logger.error("Get users with SIP status error:", error);
+      res.status(500).json({ error: error.message });
     }
   }
 }

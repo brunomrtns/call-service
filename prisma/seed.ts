@@ -51,26 +51,7 @@ async function main() {
   // Create sample client users
   const clientPassword = await bcrypt.hash("client123", 10);
 
-  const clients = [
-    {
-      name: "João Silva",
-      username: "joao.silva",
-      email: "joao@exemplo.com",
-      device: "3002",
-    },
-    {
-      name: "Maria Santos",
-      username: "maria.santos",
-      email: "maria@exemplo.com",
-      device: "3003",
-    },
-    {
-      name: "Carlos Oliveira",
-      username: "carlos.oliveira",
-      email: "carlos@exemplo.com",
-      device: "3004",
-    },
-  ];
+  const clients = [];
 
   for (const clientData of clients) {
     const devicePassword = await bcrypt.hash(clientData.device, 10);

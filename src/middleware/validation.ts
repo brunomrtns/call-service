@@ -25,7 +25,6 @@ export const validateRequest = (schema: Joi.ObjectSchema) => {
   };
 };
 
-// Common validation schemas
 export const schemas = {
   login: Joi.object({
     username: Joi.string().required().min(3).max(50),

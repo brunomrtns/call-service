@@ -9,10 +9,12 @@ import Database from "@/config/database";
 import logger from "@/utils/logger";
 import routes from "@/routes";
 import { errorHandler, notFound } from "@/middleware/error";
+import { WebSocketService } from "@/services/websocket.service";
 
 class Application {
   private app: express.Application;
   private server: any;
+  private wsService: WebSocketService | null = null;
 
   constructor() {
     this.app = express();
@@ -22,11 +24,8 @@ class Application {
   }
 
   private setupMiddleware(): void {
-    // Security middleware
     this.app.use(helmet());
-    // this.app.use(compression());
 
-    // CORS configuration
     this.app.use(
       cors({
         origin: config.corsOrigins,
@@ -36,21 +35,18 @@ class Application {
       })
     );
 
-    // Rate limiting
     const limiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100, // limit each IP to 100 requests per windowMs
+      windowMs: 15 * 60 * 1000,
+      max: 500,
       message: "Too many requests from this IP, please try again later.",
       standardHeaders: true,
       legacyHeaders: false,
     });
     this.app.use("/api/", limiter);
 
-    // Body parsing middleware
     this.app.use(express.json({ limit: "10mb" }));
     this.app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-    // Logging middleware
     this.app.use((req, res, next) => {
       logger.info(`${req.method} ${req.path}`, {
         ip: req.ip,
@@ -61,10 +57,8 @@ class Application {
   }
 
   private setupRoutes(): void {
-    // API routes
     this.app.use("/api", routes);
 
-    // Root route
     this.app.get("/", (req, res) => {
       res.json({
         message: "Call Service API",
@@ -73,31 +67,34 @@ class Application {
         timestamp: new Date().toISOString(),
       });
     });
+
+    this.app.get("/favicon.ico", (req, res) => {
+      res.status(204).end();
+    });
   }
 
   private setupErrorHandling(): void {
-    // Handle 404 errors
     this.app.use(notFound);
 
-    // Global error handler
     this.app.use(errorHandler);
   }
 
   public async start(): Promise<void> {
     try {
-      // Connect to database
       await Database.connect();
 
-      // Create HTTP server
       this.server = createServer(this.app);
 
-      // Start server
+      this.wsService = new WebSocketService(this.server);
+
       this.server.listen(config.port, () => {
         logger.info(`Server running on port ${config.port}`);
+        logger.info(
+          `WebSocket server running on ws://localhost:${config.port}/ws/device-status`
+        );
         logger.info(`Environment: ${config.nodeEnv}`);
       });
 
-      // Graceful shutdown handling
       process.on("SIGTERM", this.shutdown.bind(this));
       process.on("SIGINT", this.shutdown.bind(this));
     } catch (error) {
@@ -110,12 +107,14 @@ class Application {
     logger.info("Shutting down server...");
 
     try {
-      // Close HTTP server
+      if (this.wsService) {
+        this.wsService.close();
+      }
+
       if (this.server) {
         this.server.close();
       }
 
-      // Disconnect from database
       await Database.disconnect();
 
       logger.info("Server shutdown complete");

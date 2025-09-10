@@ -26,7 +26,7 @@ export const authenticate = (
     next();
   } catch (error) {
     logger.error("Authentication error:", error);
-    res.status(400).json({ error: "Invalid token." });
+    res.status(401).json({ error: "Invalid token." });
   }
 };
 
@@ -67,7 +67,6 @@ export const optionalAuth = (
 
     next();
   } catch (error) {
-    // Token is invalid but we continue without authentication
     next();
   }
 };

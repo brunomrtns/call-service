@@ -27,7 +27,6 @@ class Database {
         ],
       });
 
-      // Log database queries in development
       if (process.env.NODE_ENV === "development") {
         (Database.instance as any).$on("query", (e: any) => {
           logger.debug("Database Query:", {
