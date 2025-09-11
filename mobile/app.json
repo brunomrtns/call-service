@@ -1,4 +1,5 @@
 {
   "name": "Call System",
-  "displayName": "Call System"
+  "displayName": "Call System",
+  "icon": "./assets/images/call-system-icon.png"
 }

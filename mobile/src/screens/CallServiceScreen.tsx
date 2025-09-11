@@ -11,6 +11,7 @@ import {
   Surface,
   IconButton,
   Snackbar,
+  Modal,
 } from "react-native-paper";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
@@ -99,6 +100,17 @@ export default function CallServiceApp() {
     email: "",
   });
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    visible: boolean;
+    type: "success" | "error";
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -112,11 +124,23 @@ export default function CallServiceApp() {
       );
       await AsyncStorage.setItem("callSystemUser", JSON.stringify(data));
       setUser(data.user);
-      setMessage({ type: "success", text: "Login realizado com sucesso" });
+      setFeedbackModal({
+        visible: true,
+        type: "success",
+        title: "Login realizado!",
+        message: `Bem-vindo(a), ${data.user.name}! Você foi conectado com sucesso ao sistema de chamadas.`,
+      });
     } catch (error: any) {
-      setMessage({
+      const errorMessage = error.response?.data?.message || "Erro no login";
+      const errorDetails =
+        error.response?.data?.details ||
+        error.response?.statusText ||
+        "Verifique suas credenciais e tente novamente.";
+      setFeedbackModal({
+        visible: true,
         type: "error",
-        text: error.response?.data?.message || "Erro no login",
+        title: "Erro no Login",
+        message: `${errorMessage}\n\nDetalhes: ${errorDetails}`,
       });
     }
   };
@@ -126,13 +150,25 @@ export default function CallServiceApp() {
 
     try {
       await axios.post("/api/users/register", registerForm);
-      setMessage({ type: "success", text: "Registrado! Faça login." });
       setRegisterForm({ name: "", username: "", password: "", email: "" });
       setIsRegistering(false);
+      setFeedbackModal({
+        visible: true,
+        type: "success",
+        title: "Registro realizado!",
+        message: `Olá ${registerForm.name}! Seu registro foi realizado com sucesso. Agora você pode fazer login com suas credenciais.`,
+      });
     } catch (error: any) {
-      setMessage({
+      const errorMessage = error.response?.data?.message || "Erro ao registrar";
+      const errorDetails =
+        error.response?.data?.details ||
+        error.response?.statusText ||
+        "Verifique os dados informados e tente novamente.";
+      setFeedbackModal({
+        visible: true,
         type: "error",
-        text: error.response?.data?.message || "Erro ao registrar",
+        title: "Erro no Registro",
+        message: `${errorMessage}\n\nDetalhes: ${errorDetails}`,
       });
     }
   };
@@ -418,104 +454,152 @@ export default function CallServiceApp() {
   if (!user) {
     return (
       <View style={styles.container}>
-        <Surface style={styles.loginCard} elevation={4}>
-          <Text variant="headlineMedium" style={styles.title}>
-            {isRegistering ? "Registro" : "Login"}
-          </Text>
+        <View style={styles.centeredContainer}>
+          <Surface style={styles.loginCard} elevation={4}>
+            <Text variant="headlineMedium" style={styles.title}>
+              {isRegistering ? "Registro" : "Login"}
+            </Text>
 
-          {!isRegistering ? (
-            <>
-              <TextInput
-                label="Usuário"
-                value={loginForm.username}
-                onChangeText={(text) =>
-                  setLoginForm({ ...loginForm, username: text })
-                }
-                style={styles.input}
-                mode="outlined"
-              />
-              <TextInput
-                label="Senha"
-                value={loginForm.password}
-                onChangeText={(text) =>
-                  setLoginForm({ ...loginForm, password: text })
-                }
-                secureTextEntry
-                style={styles.input}
-                mode="outlined"
-              />
+            {!isRegistering ? (
+              <>
+                <TextInput
+                  label="Usuário"
+                  value={loginForm.username}
+                  onChangeText={(text) =>
+                    setLoginForm({ ...loginForm, username: text })
+                  }
+                  style={styles.input}
+                  mode="outlined"
+                />
+                <TextInput
+                  label="Senha"
+                  value={loginForm.password}
+                  onChangeText={(text) =>
+                    setLoginForm({ ...loginForm, password: text })
+                  }
+                  secureTextEntry
+                  style={styles.input}
+                  mode="outlined"
+                />
+                <Button
+                  mode="contained"
+                  onPress={handleLogin}
+                  style={styles.button}
+                >
+                  Entrar
+                </Button>
+                <Button
+                  mode="text"
+                  onPress={() => setIsRegistering(true)}
+                  style={styles.button}
+                >
+                  Não tem conta? Registre-se
+                </Button>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  label="Nome"
+                  value={registerForm.name}
+                  onChangeText={(text) =>
+                    setRegisterForm({ ...registerForm, name: text })
+                  }
+                  style={styles.input}
+                  mode="outlined"
+                />
+                <TextInput
+                  label="Usuário"
+                  value={registerForm.username}
+                  onChangeText={(text) =>
+                    setRegisterForm({ ...registerForm, username: text })
+                  }
+                  style={styles.input}
+                  mode="outlined"
+                />
+                <TextInput
+                  label="Senha"
+                  value={registerForm.password}
+                  onChangeText={(text) =>
+                    setRegisterForm({ ...registerForm, password: text })
+                  }
+                  secureTextEntry
+                  style={styles.input}
+                  mode="outlined"
+                />
+                <TextInput
+                  label="Email"
+                  value={registerForm.email}
+                  onChangeText={(text) =>
+                    setRegisterForm({ ...registerForm, email: text })
+                  }
+                  keyboardType="email-address"
+                  style={styles.input}
+                  mode="outlined"
+                />
+                <Button
+                  mode="contained"
+                  onPress={handleRegister}
+                  style={styles.button}
+                >
+                  Registrar
+                </Button>
+                <Button
+                  mode="text"
+                  onPress={() => setIsRegistering(false)}
+                  style={styles.button}
+                >
+                  Já tem conta? Faça login
+                </Button>
+              </>
+            )}
+          </Surface>
+        </View>
+
+        {/* Modal de Feedback */}
+        <Portal>
+          <Modal
+            visible={feedbackModal.visible}
+            onDismiss={() =>
+              setFeedbackModal({ ...feedbackModal, visible: false })
+            }
+            contentContainerStyle={styles.modalContainer}
+          >
+            <Surface style={styles.modalContent} elevation={5}>
+              <Text
+                variant="headlineSmall"
+                style={[
+                  styles.modalTitle,
+                  {
+                    color:
+                      feedbackModal.type === "success" ? "#4caf50" : "#f44336",
+                  },
+                ]}
+              >
+                {feedbackModal.title}
+              </Text>
+
+              <Text variant="bodyMedium" style={styles.modalMessage}>
+                {feedbackModal.message}
+              </Text>
+
               <Button
                 mode="contained"
-                onPress={handleLogin}
-                style={styles.button}
-              >
-                Entrar
-              </Button>
-              <Button
-                mode="text"
-                onPress={() => setIsRegistering(true)}
-                style={styles.button}
-              >
-                Não tem conta? Registre-se
-              </Button>
-            </>
-          ) : (
-            <>
-              <TextInput
-                label="Nome"
-                value={registerForm.name}
-                onChangeText={(text) =>
-                  setRegisterForm({ ...registerForm, name: text })
+                onPress={() =>
+                  setFeedbackModal({ ...feedbackModal, visible: false })
                 }
-                style={styles.input}
-                mode="outlined"
-              />
-              <TextInput
-                label="Usuário"
-                value={registerForm.username}
-                onChangeText={(text) =>
-                  setRegisterForm({ ...registerForm, username: text })
-                }
-                style={styles.input}
-                mode="outlined"
-              />
-              <TextInput
-                label="Senha"
-                value={registerForm.password}
-                onChangeText={(text) =>
-                  setRegisterForm({ ...registerForm, password: text })
-                }
-                secureTextEntry
-                style={styles.input}
-                mode="outlined"
-              />
-              <TextInput
-                label="Email"
-                value={registerForm.email}
-                onChangeText={(text) =>
-                  setRegisterForm({ ...registerForm, email: text })
-                }
-                keyboardType="email-address"
-                style={styles.input}
-                mode="outlined"
-              />
-              <Button
-                mode="contained"
-                onPress={handleRegister}
-                style={styles.button}
+                style={[
+                  styles.modalButton,
+                  {
+                    backgroundColor:
+                      feedbackModal.type === "success" ? "#4caf50" : "#f44336",
+                  },
+                ]}
               >
-                Registrar
+                OK
               </Button>
-              <Button
-                mode="text"
-                onPress={() => setIsRegistering(false)}
-                style={styles.button}
-              >
-                Já tem conta? Faça login
-              </Button>
-            </>
-          )}
-        </Surface>
+            </Surface>
+          </Modal>
+        </Portal>
 
         <Snackbar
           visible={!!message.text}
@@ -689,10 +773,43 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f5f5f5",
   },
+  centeredContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
   loginCard: {
-    margin: 20,
+    width: "100%",
+    maxWidth: 400,
     padding: 20,
     borderRadius: 12,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 350,
+    padding: 24,
+    borderRadius: 16,
+    alignItems: "center",
+  },
+  modalTitle: {
+    textAlign: "center",
+    marginBottom: 16,
+    fontWeight: "700",
+  },
+  modalMessage: {
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalButton: {
+    minWidth: 100,
   },
   title: {
     textAlign: "center",
