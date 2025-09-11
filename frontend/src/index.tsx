@@ -4,7 +4,6 @@ import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import App from "./App";
 
-// Tema personalizado para o CallSystem
 const theme = createTheme({
   palette: {
     mode: "light",
