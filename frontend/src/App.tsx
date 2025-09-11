@@ -46,19 +46,25 @@ import {
 } from "@mui/icons-material";
 import "./App.css";
 
+import {
+  User,
+  AuthResponse,
+  LoginForm,
+  RegisterForm,
+  SIPCall,
+  IncomingCall,
+  Message,
+  AudioDevices,
+  SIP_STATUS,
+  SIPStatus,
+  SIP_WS_URI,
+  SIP_REALM,
+  SIP_PASSWORD_DEFAULT,
+} from "./types";
+
 axios.defaults.baseURL = "http://localhost:3001";
-const ASTERISK_HOST = "192.168.15.176";
-const SIP_WS_URI = `ws://${ASTERISK_HOST}:8088/asterisk/ws`;
-const SIP_REALM = ASTERISK_HOST;
-const SIP_PASSWORD_DEFAULT = "Teste123";
 
-const SIP_STATUS = {
-  DISCONNECTED: "disconnected",
-  CONNECTING: "connecting",
-  CONNECTED: "connected",
-};
-
-const getStatusColor = (status) => {
+const getStatusColor = (status: SIPStatus): "success" | "error" | "default" => {
   switch (status) {
     case SIP_STATUS.CONNECTED:
       return "success";
@@ -69,44 +75,63 @@ const getStatusColor = (status) => {
   }
 };
 
+interface Contact extends User {
+  sipStatus: "online" | "offline" | "unavailable" | "unknown";
+}
+
+interface StatusBadgeProps {
+  contact: Contact;
+}
+
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [ua, setUa] = useState(null);
-  const [sipStatus, setSipStatus] = useState(SIP_STATUS.DISCONNECTED);
-  const [currentCall, setCurrentCall] = useState(null);
-  const [incomingCall, setIncomingCall] = useState(null);
-  const [contacts, setContacts] = useState([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [ua, setUa] = useState<any>(null);
+  const [sipStatus, setSipStatus] = useState<SIPStatus>(
+    SIP_STATUS.DISCONNECTED
+  );
+  const [currentCall, setCurrentCall] = useState<SIPCall | null>(null);
+  const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
 
-  const [message, setMessage] = useState({ type: "", text: "" });
-  const [dialerOpen, setDialerOpen] = useState(false);
-  const [dialedNumber, setDialedNumber] = useState("");
-  const [audioConfigOpen, setAudioConfigOpen] = useState(false);
+  const [message, setMessage] = useState<Message>({ type: "", text: "" });
+  const [dialerOpen, setDialerOpen] = useState<boolean>(false);
+  const [dialedNumber, setDialedNumber] = useState<string>("");
+  const [audioConfigOpen, setAudioConfigOpen] = useState<boolean>(false);
 
-  const [loginForm, setLoginForm] = useState({ username: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({
+  const [loginForm, setLoginForm] = useState<LoginForm>({
+    username: "",
+    password: "",
+  });
+  const [registerForm, setRegisterForm] = useState<RegisterForm>({
     name: "",
     username: "",
     password: "",
     device: "",
   });
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [isRegistering, setIsRegistering] = useState<boolean>(false);
 
-  const [audioDevices, setAudioDevices] = useState({ inputs: [], outputs: [] });
-  const [selectedAudioInput, setSelectedAudioInput] = useState("");
-  const [selectedAudioOutput, setSelectedAudioOutput] = useState("");
+  const [audioDevices, setAudioDevices] = useState<AudioDevices>({
+    inputs: [],
+    outputs: [],
+  });
+  const [selectedAudioInput, setSelectedAudioInput] = useState<string>("");
+  const [selectedAudioOutput, setSelectedAudioOutput] = useState<string>("");
 
-  const remoteAudioRef = useRef(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     setMessage({ type: "", text: "" });
 
     try {
-      const { data } = await axios.post("/api/users/login", loginForm);
+      const { data } = await axios.post<AuthResponse>(
+        "/api/users/login",
+        loginForm
+      );
       localStorage.setItem("callSystemUser", JSON.stringify(data));
-      setUser(data);
+      setUser(data.user);
       setMessage({ type: "success", text: "Login realizado com sucesso" });
-    } catch (error) {
+    } catch (error: any) {
       setMessage({
         type: "error",
         text: error.response?.data?.message || "Erro no login",
@@ -114,7 +139,7 @@ export default function App() {
     }
   };
 
-  const handleRegister = async (e) => {
+  const handleRegister = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     setMessage({ type: "", text: "" });
 
@@ -123,7 +148,7 @@ export default function App() {
       setMessage({ type: "success", text: "Registrado! Faça login." });
       setRegisterForm({ name: "", username: "", password: "", device: "" });
       setIsRegistering(false);
-    } catch (error) {
+    } catch (error: any) {
       setMessage({
         type: "error",
         text: error.response?.data?.message || "Erro ao registrar",
@@ -131,7 +156,7 @@ export default function App() {
     }
   };
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback((): void => {
     if (ua) ua.stop();
     setUa(null);
     setCurrentCall(null);
@@ -143,7 +168,7 @@ export default function App() {
     localStorage.removeItem("callSystemUser");
   }, [ua]);
 
-  const placeCall = (target) => {
+  const placeCall = (target: Contact): void => {
     if (!ua || sipStatus !== SIP_STATUS.CONNECTED) {
       setMessage({ type: "error", text: "SIP não conectado" });
       return;
@@ -184,7 +209,7 @@ export default function App() {
     }
   };
 
-  const answerCall = () => {
+  const answerCall = (): void => {
     if (!incomingCall?.session) return;
 
     incomingCall.session.answer({
@@ -211,32 +236,32 @@ export default function App() {
     setIncomingCall(null);
   };
 
-  const hangupCall = () => {
+  const hangupCall = (): void => {
     const session = currentCall?.session || incomingCall?.session;
     if (session) session.terminate();
     setCurrentCall(null);
     setIncomingCall(null);
   };
 
-  const openDialer = () => {
+  const openDialer = (): void => {
     setDialerOpen(true);
     setDialedNumber("");
   };
 
-  const closeDialer = () => {
+  const closeDialer = (): void => {
     setDialerOpen(false);
     setDialedNumber("");
   };
 
-  const addDigit = (digit) => {
+  const addDigit = (digit: string): void => {
     if (dialedNumber.length < 10) setDialedNumber((prev) => prev + digit);
   };
 
-  const removeDigit = () => {
+  const removeDigit = (): void => {
     setDialedNumber((prev) => prev.slice(0, -1));
   };
 
-  const dialNumber = () => {
+  const dialNumber = (): void => {
     if (!dialedNumber.trim()) {
       setMessage({ type: "error", text: "Digite um número para discar" });
       return;
@@ -281,8 +306,11 @@ export default function App() {
     const userData = localStorage.getItem("callSystemUser");
     if (userData) {
       try {
-        setUser(JSON.parse(userData));
-      } catch {}
+        const parsedData: AuthResponse = JSON.parse(userData);
+        setUser(parsedData.user);
+      } catch (error) {
+        console.error("Error parsing user data:", error);
+      }
     }
   }, []);
 
@@ -291,16 +319,18 @@ export default function App() {
       const userData = localStorage.getItem("callSystemUser");
       if (userData) {
         try {
-          const { token } = JSON.parse(userData);
+          const { token }: AuthResponse = JSON.parse(userData);
           if (token) config.headers.Authorization = `Bearer ${token}`;
-        } catch {}
+        } catch (error) {
+          console.error("Error parsing token:", error);
+        }
       }
       return config;
     });
 
     const responseInterceptor = axios.interceptors.response.use(
       (response) => response,
-      (error) => {
+      (error: any) => {
         if ([401, 403].includes(error.response?.status)) {
           handleLogout();
           setMessage({
@@ -321,14 +351,14 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    const loadContacts = async (retryCount = 0) => {
+    const loadContacts = async (retryCount = 0): Promise<void> => {
       const maxRetries = 3;
       const retryDelay = Math.min(1000 * 2 ** retryCount, 10000);
 
       try {
-        const res = await axios.get("/api/users/with-sip-status");
+        const res = await axios.get<Contact[]>("/api/users/with-sip-status");
         const filteredContacts = (res?.data || [])
-          .filter((u) => u.device !== user.user.device)
+          .filter((u) => u.device !== user.device)
           .sort((a, b) => {
             if (a.sipStatus === "online" && b.sipStatus !== "online") return -1;
             if (a.sipStatus !== "online" && b.sipStatus === "online") return 1;
@@ -337,7 +367,7 @@ export default function App() {
 
         setContacts(filteredContacts);
         setMessage({ type: "", text: "" });
-      } catch (error) {
+      } catch (error: any) {
         if (retryCount < maxRetries) {
           setMessage({
             type: "error",
@@ -359,13 +389,13 @@ export default function App() {
   useEffect(() => {
     if (!user || ua) return;
 
-    let sipInstance = null;
-    let reconnectTimeout = null;
+    let sipInstance: any = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 10;
     let isActive = true;
 
-    const createSipConnection = () => {
+    const createSipConnection = (): void => {
       if (!isActive) return;
 
       try {
@@ -374,10 +404,10 @@ export default function App() {
 
         const config = {
           sockets: [socket],
-          uri: `sip:${user.user.device}@${SIP_REALM}`,
-          authorization_user: user.user.device,
+          uri: `sip:${user.device}@${SIP_REALM}`,
+          authorization_user: user.device,
           password: SIP_PASSWORD_DEFAULT,
-          display_name: user.user.name,
+          display_name: user.name,
           session_timers: false,
           register: true,
           register_expires: 300,
@@ -418,7 +448,7 @@ export default function App() {
       }
     };
 
-    const handleSipDisconnect = () => {
+    const handleSipDisconnect = (): void => {
       if (!isActive) return;
 
       setSipStatus(SIP_STATUS.DISCONNECTED);
@@ -441,11 +471,11 @@ export default function App() {
       }
     };
 
-    const handleNewRTCSession = (e) => {
+    const handleNewRTCSession = (e: any): void => {
       const session = e.session;
 
-      session.on("peerconnection", (ev) => {
-        ev.peerconnection.addEventListener("track", (t) => {
+      session.on("peerconnection", (ev: any) => {
+        ev.peerconnection.addEventListener("track", (t: any) => {
           const stream = t.streams?.[0];
           if (stream && remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = stream;
@@ -492,12 +522,12 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    let ws = null;
-    let reconnectTimeout = null;
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
 
-    const connectWebSocket = () => {
+    const connectWebSocket = (): void => {
       try {
         ws = new WebSocket("ws://localhost:3001/ws/device-status");
 
@@ -506,20 +536,22 @@ export default function App() {
           if (reconnectTimeout) clearTimeout(reconnectTimeout);
         };
 
-        ws.onmessage = (event) => {
+        ws.onmessage = (event: MessageEvent) => {
           try {
             const message = JSON.parse(event.data);
             if (message.type.includes("users-with-sip-status")) {
               const filteredUsers = message.data.filter(
-                (u) => u.device !== user.user.device
+                (u: Contact) => u.device !== user.device
               );
-              const sortedUsers = filteredUsers.sort((a, b) => {
-                if (a.sipStatus === "online" && b.sipStatus !== "online")
-                  return -1;
-                if (a.sipStatus !== "online" && b.sipStatus === "online")
-                  return 1;
-                return a.name.localeCompare(b.name);
-              });
+              const sortedUsers = filteredUsers.sort(
+                (a: Contact, b: Contact) => {
+                  if (a.sipStatus === "online" && b.sipStatus !== "online")
+                    return -1;
+                  if (a.sipStatus !== "online" && b.sipStatus === "online")
+                    return 1;
+                  return a.name.localeCompare(b.name);
+                }
+              );
               setContacts(sortedUsers);
             }
           } catch (error) {
@@ -535,7 +567,7 @@ export default function App() {
           }
         };
 
-        ws.onerror = (error) => {
+        ws.onerror = (error: Event) => {
           console.error("Erro no WebSocket:", error);
         };
       } catch (error) {
@@ -552,17 +584,17 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    const loadDevices = async () => {
+    const loadDevices = async (): Promise<void> => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter((d) => d.kind === "audioinput");
         const outputs = devices.filter((d) => d.kind === "audiooutput");
 
         setAudioDevices({ inputs, outputs });
-        if (!selectedAudioInput && inputs.length)
-          setSelectedAudioInput(inputs[0].deviceId);
-        if (!selectedAudioOutput && outputs.length)
-          setSelectedAudioOutput(outputs[0].deviceId);
+        if (!selectedAudioInput && inputs.length > 0)
+          setSelectedAudioInput(inputs[0]?.deviceId || "");
+        if (!selectedAudioOutput && outputs.length > 0)
+          setSelectedAudioOutput(outputs[0]?.deviceId || "");
       } catch (error) {
         setMessage({
           type: "error",
@@ -587,7 +619,7 @@ export default function App() {
     }
   }, [selectedAudioOutput]);
 
-  const StatusBadge = ({ contact }) => {
+  const StatusBadge: React.FC<StatusBadgeProps> = ({ contact }) => {
     const status = contact.sipStatus || "unknown";
     const color =
       status === "online"
@@ -611,7 +643,7 @@ export default function App() {
     );
   };
 
-  const DialPad = () => (
+  const DialPad: React.FC = () => (
     <Grid container spacing={1}>
       {[
         ["1", "2", "3"],
@@ -676,7 +708,9 @@ export default function App() {
 
             {message.text && (
               <Alert
-                severity={message.type}
+                severity={
+                  message.type as "success" | "error" | "info" | "warning"
+                }
                 sx={{ mb: 2 }}
                 onClose={() => setMessage({ type: "", text: "" })}
               >
@@ -832,11 +866,11 @@ export default function App() {
             >
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: "bold", mb: 0.5 }}>
-                  Bem-vindo, {user.user.name}
+                  Bem-vindo, {user.name}
                 </Typography>
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                   <Typography variant="body2" color="text.secondary">
-                    Ramal {user.user.device}
+                    Ramal {user.device}
                   </Typography>
                   <Chip
                     label={`SIP ${sipStatus}`}
@@ -908,7 +942,9 @@ export default function App() {
 
           {message.text && (
             <Alert
-              severity={message.type}
+              severity={
+                message.type as "success" | "error" | "info" | "warning"
+              }
               onClose={() => setMessage({ type: "", text: "" })}
             >
               {message.text}
@@ -932,7 +968,7 @@ export default function App() {
                             ? "Falando com"
                             : "Chamada de"
                         } ${currentCall.peerLabel}`
-                      : `Chamada de ${incomingCall.fromName} (${incomingCall.fromDevice})`}
+                      : `Chamada de ${incomingCall?.fromName} (${incomingCall?.fromDevice})`}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {currentCall ? "Chamada ativa" : "Chamada recebida"}
