@@ -1,0 +1,121 @@
+#!/bin/bash
+
+set -e
+
+PARENT_PATH=$(
+    cd "$(dirname "${BASH_SOURCE[0]}")"
+    pwd -P
+)
+PARENT_PATH="${PARENT_PATH}/.."
+
+source "${PARENT_PATH}/bash_scripts/utils_functions/create_android_manifest" || {
+    echo "Erro ao carregar create_android_manifest"
+    exit 1
+}
+
+INSTANCE_NAME="ubuntu-jammy-build-package"
+PROJECT_NAME="reactnative"
+PROJECT_IN_VM_DIR="/home/ubuntu/${PROJECT_NAME}"
+OUTPUT_TAR="${PARENT_PATH}/../tars"
+ANDROID_SDK_PATH="/opt/android-sdk"
+JAVA_HOME_PATH="/usr/lib/jvm/java-17-openjdk-amd64"
+PROJECT_DOMAIN="com.brunomrtns.${PROJECT_NAME}"
+ANDROID_LOCAL_PROPERTIES="sdk.dir=${ANDROID_SDK_PATH}"
+MANIFEST_FILE="android/app/src/main/AndroidManifest.xml"
+MANIFEST_DIR="android/app/src/main"
+APPLICATION_ICON="./assets/images/adaptive-icon.png"
+APK_NAME="app-release.apk"
+
+rm -rf "${OUTPUT_TAR}"
+mkdir -p "${OUTPUT_TAR}"
+
+echo "Compactando o projeto..."
+
+tar -czf "${OUTPUT_TAR}/${PROJECT_NAME}.tar.gz" -C "${PARENT_PATH}" . || {
+    echo "Erro ao criar o arquivo .tar.gz"
+    exit 1
+}
+
+if [[ ! -f "${OUTPUT_TAR}/${PROJECT_NAME}.tar.gz" ]]; then
+    echo "Erro: Arquivo compactado não foi criado."
+    exit 1
+fi
+
+TAR_FILE=$(realpath "${OUTPUT_TAR}/${PROJECT_NAME}.tar.gz")
+
+incus exec "${INSTANCE_NAME}" -- mkdir -p "${PROJECT_IN_VM_DIR}" || {
+    echo "Erro ao criar o diretório de destino na VM."
+    exit 1
+}
+
+echo "Transferindo o arquivo compactado para a VM..."
+incus file push "${TAR_FILE}" "${INSTANCE_NAME}${PROJECT_IN_VM_DIR}/" || {
+    echo "Erro ao copiar o arquivo para a VM."
+    exit 1
+}
+
+echo "Transferência concluída com sucesso."
+
+rm -rf "${OUTPUT_TAR}"
+
+echo "Executando na VM ${INSTANCE_NAME}..."
+
+incus exec ${INSTANCE_NAME} -- bash -c "
+    set -e
+
+    echo 'Verificando diretório do projeto...'
+    mkdir -p ${PROJECT_IN_VM_DIR}
+    cd ${PROJECT_IN_VM_DIR}
+    
+    echo 'Extraindo o projeto...'
+    tar -xzf ${PROJECT_NAME}.tar.gz
+    rm -f ${PROJECT_NAME}.tar.gz
+    
+    # Carrega o NVM na sessão atual!
+    export NVM_DIR=\"\$HOME/.nvm\"
+    [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"
+    [ -s \"\$NVM_DIR/bash_completion\" ] && . \"\$NVM_DIR/bash_completion\"
+
+    echo 'Instalando dependências...'
+    nvm install 20.19.0
+    nvm use 20.19.0
+    yarn install
+
+    echo 'Configurando o Android SDK e Java...'
+    export JAVA_HOME=${JAVA_HOME_PATH}
+    export PATH=\$JAVA_HOME/bin:${ANDROID_SDK_PATH}/cmdline-tools/latest/bin:${ANDROID_SDK_PATH}/platform-tools:\$PATH
+
+    echo 'Limpando caches do Node.js e Yarn...'
+    yarn cache clean
+
+    yes | ${ANDROID_SDK_PATH}/cmdline-tools/latest/bin/sdkmanager --licenses
+
+    export PATH=\$PATH:/opt/android-sdk/cmdline-tools/latest/bin
+    sdkmanager --sdk_root=/opt/android-sdk \"ndk;26.1.10909125\"
+    
+    echo 'Preparando ambiente Android...'
+    cd android
+    echo \"sdk.dir=${ANDROID_SDK_PATH}\" > local.properties
+
+    if [ ! -f "app/debug.keystore" ]; then
+        keytool -genkeypair -v -storetype JKS -keystore app/debug.keystore -storepass android -keyalg RSA -keysize 2048 -validity 10000 -alias androiddebugkey -keypass android -dname \"CN=Android Debug,O=Android,C=US\"
+    fi
+
+    echo \"======== Executando gradlew clean com reinicialização ===========\"
+    ./gradlew clean
+    sleep 5
+    echo \"======== Executando gradlew assembleRelease ========\"
+    ./gradlew assembleRelease
+"
+
+
+# Copiar o APK gerado para o host
+APK_PATH="${PROJECT_IN_VM_DIR}/android/app/build/outputs/apk/release/${APK_NAME}"
+mkdir -p "${PARENT_PATH}/build"
+echo "Copiando APK gerado de volta para o host..."
+incus file pull "${INSTANCE_NAME}${APK_PATH}" "${PARENT_PATH}/build/${APK_NAME}" || {
+    echo \"Erro ao copiar o APK gerado para o host\"
+    exit 1
+}
+
+echo "Build concluído com sucesso! APK disponível em: ${PARENT_PATH}/build/${APK_NAME}"

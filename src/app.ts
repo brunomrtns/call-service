@@ -28,10 +28,10 @@ class Application {
 
     this.app.use(
       cors({
-        origin: config.corsOrigins,
+        origin: true, // Aceita qualquer origem
         credentials: true,
-        methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-        allowedHeaders: ["Content-Type", "Authorization"],
+        methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
       })
     );
 

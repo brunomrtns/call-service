@@ -106,7 +106,7 @@ export default function App() {
     name: "",
     username: "",
     password: "",
-    device: "",
+    email: "",
   });
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
 
@@ -146,7 +146,7 @@ export default function App() {
     try {
       await axios.post("/api/users/register", registerForm);
       setMessage({ type: "success", text: "Registrado! Faça login." });
-      setRegisterForm({ name: "", username: "", password: "", device: "" });
+      setRegisterForm({ name: "", username: "", password: "", email: "" });
       setIsRegistering(false);
     } catch (error: any) {
       setMessage({
@@ -814,12 +814,13 @@ export default function App() {
                 />
                 <TextField
                   fullWidth
-                  label="Ramal (ex: 3005)"
+                  type="email"
+                  label="Email"
                   margin="normal"
                   required
-                  value={registerForm.device}
+                  value={registerForm.email}
                   onChange={(e) =>
-                    setRegisterForm({ ...registerForm, device: e.target.value })
+                    setRegisterForm({ ...registerForm, email: e.target.value })
                   }
                   sx={{ mb: 3 }}
                 />

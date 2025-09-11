@@ -1,0 +1,45 @@
+#!/bin/bash
+
+configure_app_json() {
+    local file="${1}"
+    local project_name="${2}"
+    local package_name="${3}"
+
+    echo "Configurando o projeto ${project_name} com dominio ${package_name}"
+
+    if ! command -v jq &>/dev/null; then
+        echo "Erro: O comando 'jq' não está instalado. Instale-o antes de continuar."
+        exit 1
+    fi
+
+    if [[ -f $file ]]; then
+        jq --arg name "$project_name" \
+            --arg slug "$project_name" \
+            --arg package "$package_name" \
+            --arg bundleIdentifier "$package_name" \
+            '.expo.name = $name | .expo.slug = $slug | .expo.android.package = $package | .expo.ios.bundleIdentifier = $bundleIdentifier' \
+            "$file" >temp.json && mv temp.json "$file"
+
+        echo "Arquivo app.json atualizado com sucesso!"
+    else
+        echo "Arquivo app.json não encontrado. Criando um novo..."
+
+        cat <<EOF >$file
+{
+  "expo": {
+    "name": "$project_name",
+    "slug": "$project_name",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "$package_name"
+    },
+    "android": {
+      "package": "$package_name"
+    }
+  }
+}
+EOF
+
+        echo "Novo arquivo app.json criado com sucesso!"
+    fi
+}

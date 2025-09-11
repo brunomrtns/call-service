@@ -1,0 +1,45 @@
+#!/bin/bash
+
+function adaptive_icons() {
+    local ICON_SRC="${1:-"./assets/images/icon.png"}" # Caminho padrão para o ícone
+    local RES_DIR="android/app/src/main/res"
+    local APP_JSON="app.json"        # Caminho do app.json
+    local ADAPTIVE_ICON_BG="#FFFFFF" # Cor de fundo padrão do ícone adaptativo
+
+    declare -A MIPMAP_SIZES=(
+        ["mipmap-mdpi"]="48x48"
+        ["mipmap-hdpi"]="72x72"
+        ["mipmap-xhdpi"]="96x96"
+        ["mipmap-xxhdpi"]="144x144"
+        ["mipmap-xxxhdpi"]="192x192"
+    )
+
+    # Verificar se o arquivo de origem existe
+    if [[ ! -f "${ICON_SRC}" ]]; then
+        echo "Erro: Arquivo de origem '${ICON_SRC}' não encontrado."
+        return 1
+    fi
+
+    # Criar ícones redimensionados
+    for MIPMAP in "${!MIPMAP_SIZES[@]}"; do
+        mkdir -p "${RES_DIR}/${MIPMAP}"
+        convert "${ICON_SRC}" -resize "${MIPMAP_SIZES[$MIPMAP]}" "${RES_DIR}/${MIPMAP}/ic_launcher.png"
+        echo "Ícone copiado para ${RES_DIR}/${MIPMAP}/ic_launcher.png (${MIPMAP_SIZES[$MIPMAP]})"
+    done
+
+    # Atualizar o app.json com os novos ícones
+    if [[ -f "${APP_JSON}" ]]; then
+        echo "Atualizando o app.json com os novos ícones..."
+        jq --arg iconPath "${ICON_SRC}" \
+            --arg adaptiveIconBG "${ADAPTIVE_ICON_BG}" \
+            '.expo.icon = $iconPath |
+            .expo.android.icon = $iconPath |
+            .expo.android.adaptiveIcon.foregroundImage = $iconPath |
+            .expo.android.adaptiveIcon.backgroundColor = $adaptiveIconBG |
+            .expo.web.favicon = $iconPath' \
+            "${APP_JSON}" >app_temp.json && mv app_temp.json "${APP_JSON}"
+        echo "app.json atualizado com sucesso!"
+    else
+        echo "Erro: Arquivo app.json não encontrado!"
+    fi
+}

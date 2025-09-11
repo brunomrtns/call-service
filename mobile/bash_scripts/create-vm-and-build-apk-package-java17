@@ -1,0 +1,284 @@
+#!/bin/bash
+
+set -e
+
+echo "create vm java17"
+echo
+read -p "Continuar? [s/n] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Ss]$ ]]; then
+    exit 1
+fi
+
+PARENT_PATH=$(
+    cd "$(dirname "${BASH_SOURCE[0]}")"
+    pwd -P
+)
+PARENT_PATH="${PARENT_PATH}/.."
+
+source "${PARENT_PATH}/bash_scripts/utils_functions/wait_system_ready" || {
+    echo "Erro ao carregar wait_system_ready"
+    exit 1
+}
+
+INSTANCE_NAME="ubuntu-jammy-build-package"
+PROJECT_DIR_NAME="reactnative"
+DEST_DIR="/home/ubuntu/$PROJECT_DIR_NAME"
+
+echo "deletando vm se ja existir..."
+# Remove instância existente, se houver
+incus delete ${INSTANCE_NAME} -f || echo "Instância não existe"
+
+# Cria a VM
+echo "criando vm..."
+incus create images:ubuntu/jammy ${INSTANCE_NAME} --vm || {
+    echo "Erro ao criar instância Ubuntu"
+    exit 1
+}
+echo "configurando vm..."
+incus config device add ${INSTANCE_NAME} agent disk source=agent:config || {
+    echo "Erro ao adicionar dispositivo agent"
+    exit 1
+}
+incus config device add ${INSTANCE_NAME} eth0 nic nictype=bridged parent=incusbr0 || {
+    echo "Erro ao adicionar bridged na VM"
+    exit 1
+}
+incus config set ${INSTANCE_NAME} limits.cpu 2 || {
+    echo "Erro ao configurar limites de CPU"
+    exit 1
+}
+incus config set ${INSTANCE_NAME} limits.memory 8GiB || {
+    echo "Erro ao configurar limites de memória"
+    exit 1
+}
+incus config device override ${INSTANCE_NAME} root size=40GB || {
+    echo "Erro ao configurar o dispositivo root"
+    exit 1
+}
+echo "iniciando vm..."
+incus start ${INSTANCE_NAME} || {
+    echo "Erro ao iniciar instância"
+    exit 1
+}
+wait_system_ready ${INSTANCE_NAME} || {
+    echo "Erro ao esperar sistema ficar pronto"
+    exit 1
+}
+
+#########################
+# Atualiza pacotes e instala dependências na VM
+incus exec ${INSTANCE_NAME} -- bash -c "
+    # echo \"nameserver 8.8.8.8\" > /etc/resolv.conf
+    echo \"Acquire::ForceIPv4 \\\"true\\\";\" > /etc/apt/apt.conf.d/99force-ipv4
+    apt update -y &&
+    apt install -y wget unzip curl jq nodejs npm software-properties-common xmlstarlet imagemagick nano libxml2-utils &&
+    # add-apt-repository -y ppa:openjdk-r/ppa &&
+    apt update -y &&
+    apt install -y openjdk-17-jdk
+" || {
+    echo "Erro ao instalar dependências"
+    exit 1
+}
+
+# Configura o Android SDK
+incus exec ${INSTANCE_NAME} -- bash -c "
+    mkdir -p /opt/android-sdk &&
+    cd /opt/android-sdk &&
+    wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip &&
+    unzip commandlinetools-linux-9477386_latest.zip -d /opt/android-sdk/cmdline-tools &&
+    rm commandlinetools-linux-9477386_latest.zip &&
+    mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
+" || {
+    echo "Erro ao configurar o Android SDK"
+    exit 1
+}
+
+# Configura Java 17 no ambiente
+JAVA_HOME_PATH="/usr/lib/jvm/java-17-openjdk-amd64"
+
+incus exec ${INSTANCE_NAME} -- bash -c "
+    if grep -q \"JAVA_HOME\" /etc/environment; then
+        echo \"Atualizando JAVA_HOME no /etc/environment...\"
+        sed -i \"s|JAVA_HOME=.*|JAVA_HOME=${JAVA_HOME_PATH}|\" /etc/environment
+    else
+        echo \"Adicionando JAVA_HOME ao /etc/environment...\"
+        echo \"JAVA_HOME=${JAVA_HOME_PATH}\" >> /etc/environment
+    fi
+
+    if grep -q \"PATH=\" /etc/environment; then
+        if ! grep -q \"${JAVA_HOME_PATH}/bin\" /etc/environment; then
+            echo \"Atualizando PATH no /etc/environment...\"
+            sed -i '/^PATH=/ s|$|:'\"${JAVA_HOME_PATH}/bin\"'|' /etc/environment
+        fi
+    else
+        echo \"Adicionando PATH ao /etc/environment...\"
+        echo \"PATH=\\\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${JAVA_HOME_PATH}/bin\\\"\" >> /etc/environment
+    fi
+
+    echo \"Recarregando /etc/environment na sessão atual...\"
+    export JAVA_HOME=${JAVA_HOME_PATH}
+    export PATH=\$PATH:${JAVA_HOME_PATH}/bin
+
+    echo \"Validando configuração de ambiente...\"
+    if [[ \"\$JAVA_HOME\" != \"${JAVA_HOME_PATH}\" ]]; then
+        echo \"Erro: JAVA_HOME não está configurado corretamente. Valor atual: \$JAVA_HOME\"
+        exit 1
+    fi
+
+    if ! echo \"\$PATH\" | grep -q \"${JAVA_HOME_PATH}/bin\"; then
+        echo \"Erro: PATH não inclui ${JAVA_HOME_PATH}/bin.\"
+        exit 1
+    fi
+    yes | ${ANDROID_SDK_PATH}/cmdline-tools/latest/bin/sdkmanager --licenses
+
+    echo \"Configuração do Java concluída. JAVA_HOME: \$JAVA_HOME\"
+    echo \"Caminho do PATH: \$PATH\"
+" || {
+    echo "Erro ao configurar Java 17 no ambiente"
+    exit 1
+}
+
+# Adicione isso onde você valida e executa os comandos Gradle
+incus exec ${INSTANCE_NAME} -- bash -c "
+    export JAVA_HOME=${JAVA_HOME_PATH}
+    export PATH=\$JAVA_HOME/bin:\$PATH
+    java -version
+" || {
+    echo "Erro ao configurar ambiente com Java 17"
+    exit 1
+}
+
+# Atualizar Node.js na VM
+echo "Atualizando Node.js para a versão 18 na VM..."
+incus exec ${INSTANCE_NAME} -- bash -c "
+    # Atualizar os repositórios
+    sudo apt-get update
+
+    # Remover qualquer instalação conflitante
+    echo 'Removendo pacotes conflitantes...'
+    sudo apt-get remove -y nodejs npm libnode-dev || echo 'Pacotes conflitantes não encontrados.'
+
+    # Limpar pacotes desnecessários
+    sudo apt-get autoremove -y
+    sudo apt-get autoclean -y
+
+    # Instalar Node.js 18
+    echo 'Instalando Node.js 18...'
+    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+
+    # Verificar se o Node.js foi instalado corretamente
+    if ! command -v node &>/dev/null; then
+        echo 'Erro: Node.js não foi instalado corretamente.'
+        exit 1
+    fi
+
+    if ! command -v npm &>/dev/null; then
+        echo 'Erro: npm não foi instalado corretamente.'
+        exit 1
+    fi
+
+    # Exibir as versões instaladas
+    echo 'Versão do Node.js instalada:'
+    node -v
+    echo 'Versão do npm instalada:'
+    npm -v
+" || {
+    echo "Erro ao atualizar o Node.js na VM"
+    exit 1
+}
+
+# Instalar Yarn na VM
+incus exec ${INSTANCE_NAME} -- bash -c "
+    if ! command -v yarn &> /dev/null; then
+        echo 'Instalando Yarn...'
+        curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
+        echo 'deb https://dl.yarnpkg.com/debian/ stable main' | sudo tee /etc/apt/sources.list.d/yarn.list
+        sudo apt update
+        sudo apt install -y yarn
+    fi
+    echo 'Yarn instalado com sucesso'
+" || {
+    echo "Erro ao instalar Yarn na VM"
+    exit 1
+}
+
+# Compacta o projeto em um arquivo tar
+TEMP_DIR=$(mktemp -d)
+
+echo "Criando uma cópia temporária do projeto..."
+cp -r "${PARENT_PATH}/../${PROJECT_DIR_NAME}" "${TEMP_DIR}" || {
+    echo "Erro ao criar cópia temporária do projeto"
+    exit 1
+}
+
+# chmod -R +xr "${TEMP_DIR}"
+# chown -R bruno:bruno "${TEMP_DIR}"
+
+# echo "Removendo arquivos desnecessarios"
+# incus exec ${INSTANCE_NAME} -- bash -c "
+#     rm -rf "${TEMP_DIR}/${PROJECT_DIR_NAME}/build"
+#     rm -rf "${TEMP_DIR}/${PROJECT_DIR_NAME}/node_modules"
+#     rm -rf "${TEMP_DIR}/${PROJECT_DIR_NAME}/android/app/build/"
+#     rm -rf "${TEMP_DIR}/${PROJECT_DIR_NAME}/android/build/"
+# " || {
+#     echo "Erro ao deletar arquivos desnecessarios"
+#     exit 1
+# }
+
+echo "Compactando o projeto..."
+tar -czf "${PARENT_PATH}/${PROJECT_DIR_NAME}.tar.gz" -C "${TEMP_DIR}" "${PROJECT_DIR_NAME}" || {
+    echo "Erro ao compactar o projeto"
+    exit 1
+}
+
+echo "Removendo cópia temporária..."
+rm -rf "${TEMP_DIR}/${PROJECT_DIR_NAME}" || {
+    echo "Erro ao remover cópia temporária"
+    exit 1
+}
+
+# Garante que o diretório de destino na VM exista
+incus exec ${INSTANCE_NAME} -- bash -c "mkdir -p ${DEST_DIR}" || {
+    echo "Erro ao criar diretório de destino na VM"
+    exit 1
+}
+
+# Copia o arquivo tar para a VM
+echo "Copiando o projeto para a VM..."
+incus file push "${PARENT_PATH}/${PROJECT_DIR_NAME}.tar.gz" ${INSTANCE_NAME}/home/ubuntu/ || {
+    echo "Erro ao copiar arquivo tar para a VM"
+    exit 1
+}
+
+# Extrai o projeto na VM
+echo "Extraindo o projeto na VM..."
+incus exec ${INSTANCE_NAME} -- bash -c "
+    tar -xzf /home/ubuntu/${PROJECT_DIR_NAME}.tar.gz -C /home/ubuntu &&
+    rm /home/ubuntu/${PROJECT_DIR_NAME}.tar.gz
+" || {
+    echo "Erro ao extrair o projeto na VM"
+    exit 1
+}
+
+incus exec ${INSTANCE_NAME} -- bash -c '
+    export NVM_VERSION="v0.39.7"
+    if [ ! -d "$HOME/.nvm" ]; then
+        echo "Instalando NVM..."
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh | bash
+    fi
+    # Ativa o NVM para esta sessão
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    echo "NVM instalado e disponível"
+    nvm --version
+' || {
+    echo "Erro ao instalar NVM na VM"
+    exit 1
+}
+
+rm -f "${PARENT_PATH}/${PROJECT_DIR_NAME}.tar.gz"
+
+echo "VM criada"

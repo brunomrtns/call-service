@@ -1,0 +1,44 @@
+#!/bin/bash
+
+update_root_build_gradle() {
+    local file="$1"
+    local kotlin_version="${2:-1.9.10}"
+    local build_tools_version="${3:-34.0.0}"
+    local gradle_plugin_version="${4:-8.1.1}"
+    local rn_gradle_plugin_version="${5:-0.76.4}"
+
+    # Remove qualquer bloco plugins antigo do topo
+    sed -i '/^plugins\s*{/,/^}/d' "$file"
+
+    # Remove comentários e linhas em branco do início do arquivo
+    awk 'NR==1{while($0 ~ /^(\s*|\/\/.*)$/){getline}} 1' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
+
+    # Atualiza as versões no arquivo
+    sed -i "s/kotlinVersion = .*/kotlinVersion = \"${kotlin_version}\"/" "$file"
+    sed -i "s/buildToolsVersion = .*/buildToolsVersion = \"${build_tools_version}\"/" "$file"
+    sed -i "s/classpath('com.android.tools.build:gradle:[^']*')/classpath('com.android.tools.build:gradle:${gradle_plugin_version}')/" "$file"
+    sed -i "s/classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:[^']*')/classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlin_version}')/" "$file"
+    sed -i "s/classpath('com.facebook.react:react-native-gradle-plugin:[^']*')/classpath('com.facebook.react:react-native-gradle-plugin:${rn_gradle_plugin_version}')/" "$file"
+
+    # Garante que o apply plugin: 'expo-root-project' esteja presente após o buildscript
+    if ! grep -q "apply plugin: 'expo-root-project'" "$file"; then
+        awk '
+        BEGIN {inserted=0}
+        /^buildscript\s*{/ {print; in_block=1; next}
+        in_block && /^\}/ {
+            print
+            print "apply plugin: '\''expo-root-project'\''"
+            inserted=1
+            in_block=0
+            next
+        }
+        {print}
+        END {
+            if (!inserted) {
+                print "apply plugin: '\''expo-root-project'\''"
+            }
+        }' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
+    fi
+
+    echo "[OK] build.gradle (raiz) atualizado com 'apply plugin: expo-root-project' e versões corretas"
+}

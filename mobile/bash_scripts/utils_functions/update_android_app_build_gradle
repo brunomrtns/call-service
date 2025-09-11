@@ -1,0 +1,14 @@
+#!/bin/bash
+
+function update_android_app_build_gradle() {
+    local NAMESPACE="${1}"
+    local BUILD_GRADLE_FILE="${2}"
+    local APP_BUILD_GRADLE_FILE="${3}"
+    local KOTLIN_VERSION="${4}"
+    local BUILD_TOOLS_VERSION="${5}"
+
+    sed -i "s/namespace\s*\".*\"/namespace \"${NAMESPACE}\"/" "${APP_BUILD_GRADLE_FILE}"
+    # sed -i "s/kotlinVersion\s*=\s*\"[^\"]*\"/kotlinVersion = \"${KOTLIN_VERSION}\"/" "${BUILD_GRADLE_FILE}"
+    # sed -i "s/buildToolsVersion\s*=\s*\"[^\"]*\"/buildToolsVersion = \"${BUILD_TOOLS_VERSION}\"/" "${BUILD_GRADLE_FILE}"
+    # sed -i 's/if (hermesEnabled.toBoolean()) {/if (project.hasProperty("hermesEnabled") && hermesEnabled.toBoolean()) {/' "${APP_BUILD_GRADLE_FILE}"
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["dom", "esnext"],
+    "types": ["vite/client"]
+  },
+  "include": ["index.web.tsx", "src", "src/types"]
+}

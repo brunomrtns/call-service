@@ -1,0 +1,104 @@
+#!/bin/bash
+
+set -e
+
+PARENT_PATH=$(
+    cd "$(dirname "${BASH_SOURCE[0]}")"
+    pwd -P
+)
+PARENT_PATH="${PARENT_PATH}/.."
+
+PROJECT_DIR_NAME="reactnative"
+TARGET_REPOSITORY_ADDR="192.168.169.2"
+PASS_DEVICE="root"
+USER_DEVICE_SECONDARY="digitro"
+DEVICE_WORKDIR="/home/${USER_DEVICE_SECONDARY}/Develop"
+OUTPUT_ARCHIVE="${PARENT_PATH}/tar/${PROJECT_DIR_NAME}.tar.gz"
+GITIGNORE_FILE="${PARENT_PATH}/.gitignore"
+LOG_LOCAL_DIR="${PARENT_PATH}/my_logs"
+APK_LOCAL_DIR="${PARENT_PATH}/build"
+APK_NAME="app-release.apk"
+
+echo "Compactando apenas os arquivos necessários..."
+mkdir -p "${PARENT_PATH}/tar/"
+
+rm -rf "${PARENT_PATH}/tar/${PROJECT_DIR_NAME}.tar.gz"
+cd "${PARENT_PATH}"
+
+TMP_BACKUP_DIR=$(mktemp -d)
+
+echo "Criando backup dos arquivos/diretórios a serem ignorados..."
+while IFS= read -r line; do
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    TARGET="${PARENT_PATH}/${line}"
+    if [[ -e "$TARGET" ]]; then
+        echo "Movendo: $TARGET"
+        mv "$TARGET" "$TMP_BACKUP_DIR/"
+    fi
+done <.gitignore
+
+echo "Compactando o projeto..."
+mkdir -p "$(dirname "${OUTPUT_ARCHIVE}")"
+tar --exclude="./tar" -czf "${OUTPUT_ARCHIVE}" -C "${PARENT_PATH}" . || {
+    echo "Erro ao criar o arquivo .tar.gz"
+    exit 1
+}
+
+echo "Restaurando os arquivos/diretórios ignorados..."
+mv "${TMP_BACKUP_DIR}"/* "${PARENT_PATH}/" 2>/dev/null || true
+rm -rf "${TMP_BACKUP_DIR}"
+
+echo "Compactação concluída. Arquivo gerado: ${OUTPUT_ARCHIVE}"
+
+# Limpa arquivo temporário
+rm -f "${TMP_EXCLUDE_FILE}"
+
+echo "Arquivos compactados com sucesso em ${OUTPUT_ARCHIVE}"
+
+# Verifica se o arquivo foi gerado
+if [[ ! -f "${PARENT_PATH}/tar/${PROJECT_DIR_NAME}.tar.gz" ]]; then
+    echo "Arquivo compactado não encontrado! Abortando."
+    exit 1
+fi
+
+sshpass -p "${PASS_DEVICE}" ssh -t -o StrictHostKeyChecking=no root@${TARGET_REPOSITORY_ADDR} "
+    set -e
+    echo \"Garantindo que o diretório ${DEVICE_WORKDIR} exista\"
+    rm -rf \"${DEVICE_WORKDIR}\"
+    mkdir -p \"${DEVICE_WORKDIR}\"
+"
+
+echo "Enviando arquivo..."
+sshpass -p "${PASS_DEVICE}" scp -o 'StrictHostKeyChecking=no' "${PARENT_PATH}/tar/${PROJECT_DIR_NAME}.tar.gz" "root@${TARGET_REPOSITORY_ADDR}:${DEVICE_WORKDIR}"
+
+echo "Entrando na máquina e aplicando..."
+sshpass -p "${PASS_DEVICE}" ssh -t -o StrictHostKeyChecking=no root@${TARGET_REPOSITORY_ADDR} "
+    set -e
+    echo \"Entrando no diretório\"
+    cd \"${DEVICE_WORKDIR}\"
+    mkdir -p \"${PROJECT_DIR_NAME}\"
+    cd \"${PROJECT_DIR_NAME}\"
+    echo \"Verificando se o arquivo foi transferido corretamente\"
+    if [[ ! -f \"../${PROJECT_DIR_NAME}.tar.gz\" ]]; then
+        echo \"Arquivo compactado não encontrado na máquina remota! Abortando.\"
+        exit 1
+    fi
+    echo \"Descompactando o projeto\"
+    tar -xvf \"../${PROJECT_DIR_NAME}.tar.gz\"
+    echo \"Removendo arquivo compactado\"
+    rm -rf \"../${PROJECT_DIR_NAME}.tar.gz\"
+    echo \"Entrando no diretório do projeto ${DEVICE_WORKDIR}/${PROJECT_DIR_NAME}\"
+    cd \"${DEVICE_WORKDIR}/${PROJECT_DIR_NAME}\"
+    # echo \"Executando script de update\"
+    # ./create-vm-and-build-apk-package-java17
+    echo \"Executando script de update\"
+    chmod +xr bash_scripts/update-vm
+    ./bash_scripts/update-vm \"${PARENT_PATH}\"
+"
+APK_PATH="${APK_LOCAL_DIR}/${APK_NAME}"
+
+mkdir -p "${APK_LOCAL_DIR}"
+echo "Copiando o apk para este dispositivo"
+sshpass -p "${PASS_DEVICE}" scp -o 'StrictHostKeyChecking=no' "root@${TARGET_REPOSITORY_ADDR}:${DEVICE_WORKDIR}/${PROJECT_DIR_NAME}/build/${APK_NAME}" "${APK_LOCAL_DIR}"
+
+echo "FIM."

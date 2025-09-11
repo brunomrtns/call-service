@@ -9,9 +9,7 @@ export const config = {
 
   databaseUrl: process.env.DATABASE_URL!,
 
-  corsOrigins: process.env.CORS_ORIGINS?.split(",") || [
-    "http://localhost:3000",
-  ],
+  corsOrigins: process.env.CORS_ORIGINS?.split(",") || "*",
 
   asterisk: {
     host: process.env.ASTERISK_HOST || "192.168.15.176",
@@ -32,7 +30,7 @@ export const config = {
 
   device: {
     rangeStart: parseInt(process.env.DEVICE_RANGE_START || "3000", 10),
-    rangeEnd: parseInt(process.env.DEVICE_RANGE_END || "3999", 10),
+    rangeEnd: parseInt(process.env.DEVICE_RANGE_END || "3100", 10),
   },
 
   logging: {

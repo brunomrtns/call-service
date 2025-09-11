@@ -1,0 +1,66 @@
+#!/bin/bash
+
+#### FIXME -> Sobreescrevendo completamente o arquivo AndroidManifest.xml
+function create_android_manifest() {
+    local PROJECT_DOMAIN="${1}"
+    local ANDROID_MANIFEST_FILE="${2}"
+    local PERMISSIONS="${3:-"android.permission.INTERNET android.permission.READ_EXTERNAL_STORAGE"}"
+
+    cat <<EOF >"${ANDROID_MANIFEST_FILE}"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Permissões -->
+    $(for perm in ${PERMISSIONS}; do echo "    <uses-permission android:name=\"${perm}\" />"; done)
+
+    <!-- Consultas de intent -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <!-- Configuração do Aplicativo -->
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="true"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="true">
+
+        <!-- Configurações do Expo -->
+        <meta-data android:name="expo.modules.updates.ENABLED" android:value="true" />
+        <meta-data android:name="expo.modules.updates.EXPO_SDK_VERSION" android:value="52.0.0" />
+        <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS" />
+        <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0" />
+        <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://exp.host/@anonymous/reactnative" />
+
+        <!-- Configurações da Activity Principal -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.App.SplashScreen"
+            android:exported="true"
+            android:screenOrientation="portrait">
+
+            <!-- Intents -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${PROJECT_DOMAIN}" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+EOF
+}
