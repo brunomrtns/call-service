@@ -1,6 +1,5 @@
-// JsSIP Types - Definições mais específicas para o JsSIP
 export interface JsSIPSession {
-  direction: 'incoming' | 'outgoing';
+  direction: "incoming" | "outgoing";
   remote_identity: {
     uri?: {
       user?: string;
@@ -24,13 +23,13 @@ export interface User {
   name: string;
   username: string;
   device: string;
-  sipStatus?: 'online' | 'offline' | 'unavailable' | 'unknown';
+  sipStatus?: "online" | "offline" | "unavailable" | "unknown";
   createdAt?: string;
   updatedAt?: string;
 }
 
 export interface Contact extends User {
-  sipStatus: 'online' | 'offline' | 'unavailable' | 'unknown';
+  sipStatus: "online" | "offline" | "unavailable" | "unknown";
 }
 
 export interface AuthResponse {
@@ -72,7 +71,6 @@ export interface AudioDevices {
   outputs: MediaDeviceInfo[];
 }
 
-// Tipos para configurações de mídia WebRTC
 export interface MediaConstraintsConfig {
   audio: boolean | { deviceId: { exact: string } };
   video: boolean;
@@ -93,13 +91,11 @@ export interface CallOptions {
   rtcConfiguration: RTCConfiguration;
 }
 
-// WebSocket Message Types
 export interface WebSocketMessage {
-  type: 'users-with-sip-status' | 'users-with-sip-status-update' | string;
+  type: "users-with-sip-status" | "users-with-sip-status-update" | string;
   data: Contact[];
 }
 
-// API Error Types
 export interface ApiError {
   response?: {
     data?: {
@@ -111,17 +107,14 @@ export interface ApiError {
   code?: string;
 }
 
-// Component Props Types
 export interface StatusBadgeProps {
   contact: Contact;
 }
 
-// React Event Types
 export type FormSubmitEvent = React.FormEvent<HTMLFormElement>;
 export type InputChangeEvent = React.ChangeEvent<HTMLInputElement>;
 export type SelectChangeEvent = React.ChangeEvent<{ value: unknown }>;
 
-// Hook Return Types
 export interface UseSipConnectionReturn {
   ua: JsSIPUA | null;
   status: SIPStatus;
@@ -129,7 +122,6 @@ export interface UseSipConnectionReturn {
   disconnect: () => void;
 }
 
-// Local Storage Types
 export interface StoredUserData {
   user: User;
   token: string;
