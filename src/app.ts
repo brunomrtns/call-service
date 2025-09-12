@@ -87,10 +87,12 @@ class Application {
 
       this.wsService = new WebSocketService(this.server);
 
-      this.server.listen(config.port, () => {
-        logger.info(`Server running on port ${config.port}`);
+      this.server.listen(config.port, "0.0.0.0", () => {
+        logger.info(`Server running on port ${config.port} (all interfaces)`);
+        logger.info(`Local: http://localhost:${config.port}`);
+        logger.info(`Network: http://0.0.0.0:${config.port}`);
         logger.info(
-          `WebSocket server running on ws://localhost:${config.port}/ws/device-status`
+          `WebSocket server running on ws://0.0.0.0:${config.port}/ws/device-status`
         );
         logger.info(`Environment: ${config.nodeEnv}`);
       });
