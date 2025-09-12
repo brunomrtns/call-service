@@ -62,7 +62,53 @@ import {
   SIP_PASSWORD_DEFAULT,
 } from "./types";
 
-axios.defaults.baseURL = "http://localhost:3001";
+// Configuração dinâmica do baseURL do axios baseada no host atual
+const getBackendUrl = (): string => {
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+
+  // Se está rodando em localhost, mantém localhost
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//localhost:3001`;
+  }
+
+  // Se está rodando em IP, usa o mesmo IP para o backend
+  return `${protocol}//${hostname}:3001`;
+};
+
+// Configuração dinâmica da URL do WebSocket
+const getWebSocketUrl = (): string => {
+  const hostname = window.location.hostname;
+
+  // Se está rodando em localhost, mantém localhost
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "ws://localhost:3001/ws/device-status";
+  }
+
+  // Se está rodando em IP, usa o mesmo IP para o WebSocket
+  return `ws://${hostname}:3001/ws/device-status`;
+};
+
+axios.defaults.baseURL = getBackendUrl();
+console.log("Backend URL configurado para:", axios.defaults.baseURL);
+console.log("WebSocket URL será:", getWebSocketUrl());
+
+// Função utilitária para verificar se as APIs de mídia estão disponíveis
+const isMediaDevicesAvailable = (): boolean => {
+  return !!(
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.enumerateDevices === "function" &&
+    typeof navigator.mediaDevices.addEventListener === "function"
+  );
+};
+
+const isSecureContext = (): boolean => {
+  return (
+    window.isSecureContext ||
+    window.location.protocol === "https:" ||
+    window.location.hostname === "localhost"
+  );
+};
 
 const getStatusColor = (status: SIPStatus): "success" | "error" | "default" => {
   switch (status) {
@@ -182,9 +228,7 @@ export default function App() {
     const uri = `sip:${target.device}@${SIP_REALM}`;
     const options = {
       mediaConstraints: {
-        audio: selectedAudioInput
-          ? { deviceId: { exact: selectedAudioInput } }
-          : true,
+        audio: true,
         video: false,
       },
       rtcOfferConstraints: {
@@ -197,14 +241,48 @@ export default function App() {
     };
 
     try {
+      console.log("Iniciando chamada USANDO CONEXÃO PERSISTENTE para:", uri);
+
+      // Usar a instância SIP persistente existente
       const session = ua.call(uri, options);
-      setCurrentCall({
-        session,
-        direction: "outgoing",
-        peerLabel: `${target.name} (${target.device})`,
+
+      // Event listeners para o ciclo de vida da chamada FEITA
+      session.on("progress", () => {
+        console.log("Chamada em progresso (tocando)...");
+        setMessage({ type: "info", text: "Chamando..." });
       });
-      setMessage({ type: "", text: "" });
+
+      session.on("accepted", () => {
+        console.log("Chamada aceita pelo destinatário");
+        setCurrentCall({
+          session,
+          direction: "outgoing",
+          peerLabel: `${target.name} (${target.device})`,
+        });
+        setMessage({ type: "success", text: "Chamada conectada" });
+      });
+
+      session.on("confirmed", () => {
+        console.log("Chamada confirmada com áudio estabelecido");
+        setMessage({ type: "", text: "" });
+      });
+
+      session.on("failed", (e: any) => {
+        console.log("Chamada falhou:", e.cause);
+        setMessage({
+          type: "error",
+          text: `Falha na chamada: ${e.cause || "Erro desconhecido"}`,
+        });
+        setCurrentCall(null);
+      });
+
+      session.on("ended", () => {
+        console.log("Chamada encerrada");
+        setCurrentCall(null);
+        setMessage({ type: "", text: "" });
+      });
     } catch (error) {
+      console.error("Erro ao iniciar chamada:", error);
       setMessage({ type: "error", text: "Erro ao iniciar chamada" });
     }
   };
@@ -212,11 +290,24 @@ export default function App() {
   const answerCall = (): void => {
     if (!incomingCall?.session) return;
 
-    incomingCall.session.answer({
+    const session = incomingCall.session;
+
+    console.log(
+      "Atendendo chamada USANDO CONEXÃO PERSISTENTE de:",
+      incomingCall.fromName
+    );
+
+    // Marcar chamada como ativa imediatamente ao atender
+    setCurrentCall({
+      session,
+      direction: "incoming",
+      peerLabel: `${incomingCall.fromName} (${incomingCall.fromDevice})`,
+    });
+
+    // Responder à chamada usando a conexão persistente
+    session.answer({
       mediaConstraints: {
-        audio: selectedAudioInput
-          ? { deviceId: { exact: selectedAudioInput } }
-          : true,
+        audio: true,
         video: false,
       },
       rtcOfferConstraints: {
@@ -228,12 +319,8 @@ export default function App() {
       },
     });
 
-    setCurrentCall({
-      session: incomingCall.session,
-      direction: "incoming",
-      peerLabel: `${incomingCall.fromName} (${incomingCall.fromDevice})`,
-    });
     setIncomingCall(null);
+    setMessage({ type: "success", text: "Chamada atendida" });
   };
 
   const hangupCall = (): void => {
@@ -275,9 +362,7 @@ export default function App() {
     const uri = `sip:${dialedNumber}@${SIP_REALM}`;
     const options = {
       mediaConstraints: {
-        audio: selectedAudioInput
-          ? { deviceId: { exact: selectedAudioInput } }
-          : true,
+        audio: true,
         video: false,
       },
       rtcOfferConstraints: {
@@ -290,14 +375,49 @@ export default function App() {
     };
 
     try {
+      console.log("Discando USANDO CONEXÃO PERSISTENTE para:", dialedNumber);
+
+      // Usar a instância SIP persistente existente
       const session = ua.call(uri, options);
-      setCurrentCall({
-        session,
-        direction: "outgoing",
-        peerLabel: `Ramal ${dialedNumber}`,
+
+      // Event listeners para o ciclo de vida da chamada discada
+      session.on("progress", () => {
+        console.log("Chamada em progresso (tocando)...");
+        setMessage({ type: "info", text: "Chamando..." });
       });
-      closeDialer();
+
+      session.on("accepted", () => {
+        console.log("Chamada aceita e estabelecida");
+        setCurrentCall({
+          session,
+          direction: "outgoing",
+          peerLabel: `Ramal ${dialedNumber}`,
+        });
+        setMessage({ type: "success", text: "Chamada conectada" });
+        closeDialer();
+      });
+
+      session.on("confirmed", () => {
+        console.log("Chamada confirmada com áudio estabelecido");
+        setMessage({ type: "", text: "" });
+      });
+
+      session.on("failed", (e: any) => {
+        console.log("Chamada falhou:", e.cause);
+        setMessage({
+          type: "error",
+          text: `Falha na chamada: ${e.cause || "Erro desconhecido"}`,
+        });
+        setCurrentCall(null);
+      });
+
+      session.on("ended", () => {
+        console.log("Chamada encerrada");
+        setCurrentCall(null);
+        setMessage({ type: "", text: "" });
+      });
     } catch (error) {
+      console.error("Erro ao discar:", error);
       setMessage({ type: "error", text: "Erro ao discar número" });
     }
   };
@@ -400,6 +520,8 @@ export default function App() {
 
       try {
         setSipStatus(SIP_STATUS.CONNECTING);
+
+        // Criar socket WebSocket persistente
         const socket = new JsSIP.WebSocketInterface(SIP_WS_URI);
 
         const config = {
@@ -410,14 +532,20 @@ export default function App() {
           display_name: user.name,
           session_timers: false,
           register: true,
-          register_expires: 300,
+          register_expires: 300, // 5 minutos
           realm: SIP_REALM,
+          // Configurações para manter conexão persistente
+          no_answer_timeout: 60,
+          use_preloaded_route: false,
+          hack_via_tcp: false,
+          hack_ip_in_contact: false,
         };
 
         sipInstance = new JsSIP.UA(config);
 
         sipInstance.on("connected", () => {
           if (isActive) {
+            console.log("SIP conectado - conexão persistente estabelecida");
             setSipStatus(SIP_STATUS.CONNECTED);
             reconnectAttempts = 0;
             setMessage({ type: "", text: "" });
@@ -425,14 +553,26 @@ export default function App() {
         });
 
         sipInstance.on("disconnected", () => {
+          console.log("SIP desconectado - tentando reconectar...");
           if (isActive) handleSipDisconnect();
         });
 
         sipInstance.on("registered", () => {
-          if (isActive) setSipStatus(SIP_STATUS.CONNECTED);
+          if (isActive) {
+            console.log("SIP registrado - mantendo conexão ativa");
+            setSipStatus(SIP_STATUS.CONNECTED);
+          }
         });
 
-        sipInstance.on("registrationFailed", () => {
+        sipInstance.on("unregistered", () => {
+          console.log("SIP não registrado");
+          if (isActive) {
+            setSipStatus(SIP_STATUS.DISCONNECTED);
+          }
+        });
+
+        sipInstance.on("registrationFailed", (e: any) => {
+          console.error("Falha no registro SIP:", e);
           if (isActive) {
             setSipStatus(SIP_STATUS.DISCONNECTED);
             setMessage({ type: "error", text: "Falha na autenticação SIP" });
@@ -441,9 +581,13 @@ export default function App() {
 
         sipInstance.on("newRTCSession", handleNewRTCSession);
 
+        // Iniciar a instância SIP - uma única vez
         sipInstance.start();
         if (isActive) setUa(sipInstance);
+
+        console.log("Instância SIP criada - conexão persistente iniciada");
       } catch (error) {
+        console.error("Erro ao criar conexão SIP:", error);
         if (isActive) handleSipDisconnect();
       }
     };
@@ -451,53 +595,118 @@ export default function App() {
     const handleSipDisconnect = (): void => {
       if (!isActive) return;
 
+      console.log("Tratando desconexão SIP...");
       setSipStatus(SIP_STATUS.DISCONNECTED);
 
       if (reconnectAttempts < maxReconnectAttempts) {
         const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000);
         reconnectAttempts++;
 
+        console.log(
+          `Tentativa de reconexão ${reconnectAttempts}/${maxReconnectAttempts} em ${delay}ms`
+        );
         setMessage({
           type: "error",
           text: `Reconectando SIP... (${reconnectAttempts}/${maxReconnectAttempts})`,
         });
         reconnectTimeout = setTimeout(() => {
           if (isActive) {
+            // Limpar instância anterior antes de recriar
+            if (sipInstance) {
+              sipInstance.stop();
+              sipInstance = null;
+            }
             createSipConnection();
           }
         }, delay);
       } else {
-        setMessage({ type: "error", text: "Falha na conexão SIP" });
+        console.error("Limite de tentativas de reconexão SIP atingido");
+        setMessage({
+          type: "error",
+          text: "Falha na conexão SIP - verificar rede",
+        });
       }
     };
 
     const handleNewRTCSession = (e: any): void => {
       const session = e.session;
 
+      console.log(
+        "Nova sessão RTC:",
+        session.direction,
+        "de/para:",
+        session.remote_identity?.uri?.user
+      );
+
+      // Configurar tratamento de mídia para TODAS as sessões (incoming e outgoing)
       session.on("peerconnection", (ev: any) => {
+        console.log(
+          "PeerConnection estabelecida para sessão",
+          session.direction
+        );
+
+        // Configurar recepção de áudio
         ev.peerconnection.addEventListener("track", (t: any) => {
           const stream = t.streams?.[0];
-          if (stream && remoteAudioRef.current) {
+          console.log("Track recebido:", t.track.kind, "Stream:", stream?.id);
+
+          if (stream && t.track.kind === "audio" && remoteAudioRef.current) {
+            console.log("Configurando stream de áudio no elemento <audio>");
             remoteAudioRef.current.srcObject = stream;
+
+            // Tentar reproduzir o áudio automaticamente
+            remoteAudioRef.current
+              .play()
+              .then(() => {
+                console.log("Reprodução de áudio iniciada com sucesso");
+              })
+              .catch((error) => {
+                console.warn(
+                  "Reprodução automática bloqueada - interação do usuário necessária:",
+                  error
+                );
+                // Em alguns navegadores, é necessário interação do usuário para reproduzir áudio
+              });
           }
+        });
+
+        // Monitorar estado da conexão
+        ev.peerconnection.addEventListener("connectionstatechange", () => {
+          console.log("Estado da conexão:", ev.peerconnection.connectionState);
+        });
+
+        ev.peerconnection.addEventListener("iceconnectionstatechange", () => {
+          console.log("Estado ICE:", ev.peerconnection.iceConnectionState);
         });
       });
 
-      session.on("ended", () => {
-        if (isActive) {
-          setCurrentCall(null);
-          setIncomingCall(null);
-        }
-      });
-
-      session.on("failed", () => {
-        if (isActive) {
-          setCurrentCall(null);
-          setIncomingCall(null);
-        }
-      });
-
+      // Tratamento específico para chamadas recebidas
       if (session.direction === "incoming" && isActive) {
+        console.log(
+          "Chamada RECEBIDA de:",
+          session.remote_identity?.display_name ||
+            session.remote_identity?.uri?.user
+        );
+
+        // Event listeners para chamadas recebidas
+        session.on("ended", () => {
+          console.log("Chamada recebida encerrada");
+          if (isActive) {
+            setCurrentCall(null);
+            setIncomingCall(null);
+          }
+        });
+
+        session.on("failed", (e: any) => {
+          console.log("Chamada recebida falhou:", e.cause);
+          if (isActive) {
+            setCurrentCall(null);
+            setIncomingCall(null);
+            setMessage({ type: "error", text: "Chamada falhou" });
+          }
+        });
+
+        // Mostrar notificação de chamada recebida
         const from = session.remote_identity;
         setIncomingCall({
           session,
@@ -505,16 +714,31 @@ export default function App() {
           fromName: from?.display_name || from?.uri?.user || "Desconhecido",
         });
       }
+
+      // Para chamadas feitas (outgoing), os event listeners são configurados em placeCall/dialNumber
     };
 
     setTimeout(createSipConnection, 100);
 
     return () => {
       isActive = false;
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (sipInstance) sipInstance.stop();
+      console.log("Limpando conexão SIP...");
+
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+
+      if (sipInstance) {
+        // Desregistrar e parar a instância SIP adequadamente
+        sipInstance.unregister();
+        sipInstance.stop();
+        sipInstance = null;
+      }
+
       setUa(null);
       setSipStatus(SIP_STATUS.DISCONNECTED);
+      console.log("Conexão SIP limpa");
     };
     // eslint-disable-next-line
   }, [user]);
@@ -529,7 +753,9 @@ export default function App() {
 
     const connectWebSocket = (): void => {
       try {
-        ws = new WebSocket("ws://localhost:3001/ws/device-status");
+        const wsUrl = getWebSocketUrl();
+        console.log("Conectando WebSocket em:", wsUrl);
+        ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
           reconnectAttempts = 0;
@@ -586,6 +812,18 @@ export default function App() {
   useEffect(() => {
     const loadDevices = async (): Promise<void> => {
       try {
+        // Verifica se navigator.mediaDevices está disponível
+        if (!isMediaDevicesAvailable()) {
+          console.warn("navigator.mediaDevices não está disponível");
+          if (!isSecureContext()) {
+            setMessage({
+              type: "error",
+              text: "Recursos de mídia requerem HTTPS ou localhost. Acesse via https:// ou localhost para usar microfone/áudio.",
+            });
+          }
+          return;
+        }
+
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter((d) => d.kind === "audioinput");
         const outputs = devices.filter((d) => d.kind === "audiooutput");
@@ -596,26 +834,38 @@ export default function App() {
         if (!selectedAudioOutput && outputs.length > 0)
           setSelectedAudioOutput(outputs[0]?.deviceId || "");
       } catch (error) {
+        console.error("Erro ao carregar dispositivos de áudio:", error);
         setMessage({
           type: "error",
-          text: "Erro ao carregar dispositivos de áudio",
+          text: "Erro ao carregar dispositivos de áudio - certifique-se de usar HTTPS",
         });
       }
     };
 
     loadDevices();
-    navigator.mediaDevices.addEventListener("devicechange", loadDevices);
+
+    // Verifica se addEventListener está disponível antes de usar
+    if (isMediaDevicesAvailable()) {
+      navigator.mediaDevices.addEventListener("devicechange", loadDevices);
+    }
 
     return () => {
-      navigator.mediaDevices.removeEventListener("devicechange", loadDevices);
+      // Verifica se removeEventListener está disponível antes de usar
+      if (isMediaDevicesAvailable()) {
+        navigator.mediaDevices.removeEventListener("devicechange", loadDevices);
+      }
     };
   }, [selectedAudioInput, selectedAudioOutput]);
-
   useEffect(() => {
-    if (selectedAudioOutput && remoteAudioRef.current?.setSinkId) {
-      remoteAudioRef.current.setSinkId(selectedAudioOutput).catch((error) => {
-        console.error("Erro ao configurar saída de áudio:", error);
-      });
+    if (selectedAudioOutput && remoteAudioRef.current) {
+      // Verifica se setSinkId está disponível (não suportado em todos os navegadores)
+      if (typeof remoteAudioRef.current.setSinkId === "function") {
+        remoteAudioRef.current.setSinkId(selectedAudioOutput).catch((error) => {
+          console.error("Erro ao configurar saída de áudio:", error);
+        });
+      } else {
+        console.warn("setSinkId não é suportado neste navegador");
+      }
     }
   }, [selectedAudioOutput]);
 

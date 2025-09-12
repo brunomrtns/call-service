@@ -26,14 +26,61 @@ class Application {
   private setupMiddleware(): void {
     this.app.use(helmet());
 
+    // Configuração de CORS mais permissiva para desenvolvimento
     this.app.use(
       cors({
-        origin: true, // Aceita qualquer origem
+        origin: (origin, callback) => {
+          logger.info(`CORS request from origin: ${origin || "no-origin"}`);
+
+          // Permite qualquer origem em desenvolvimento ou se não há origem (apps móveis)
+          if (!origin || config.nodeEnv === "development") {
+            logger.info(
+              "CORS: Allowing request (development mode or no origin)"
+            );
+            return callback(null, true);
+          }
+
+          // Permite IPs da rede local automaticamente
+          const localNetworkRegex =
+            /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
+          if (localNetworkRegex.test(origin)) {
+            logger.info(`CORS: Allowing local network request from ${origin}`);
+            return callback(null, true);
+          }
+
+          // Em produção, verifica as origens configuradas
+          const allowedOrigins = config.corsOrigins;
+          if (Array.isArray(allowedOrigins)) {
+            if (
+              allowedOrigins.includes("*") ||
+              allowedOrigins.includes(origin)
+            ) {
+              logger.info(`CORS: Allowing configured origin ${origin}`);
+              return callback(null, true);
+            }
+          } else if (allowedOrigins === "*") {
+            logger.info(`CORS: Allowing wildcard origin ${origin}`);
+            return callback(null, true);
+          }
+
+          logger.warn(`CORS: Blocking request from ${origin}`);
+          return callback(new Error("Not allowed by CORS"));
+        },
         credentials: true,
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+        preflightContinue: false,
+        optionsSuccessStatus: 200,
       })
     );
+
+    // Middleware adicional para tratar preflight requests
+    this.app.options("*", (req, res) => {
+      logger.info(
+        `Preflight request from ${req.get("Origin")} for ${req.path}`
+      );
+      res.status(200).end();
+    });
 
     const limiter = rateLimit({
       windowMs: 15 * 60 * 1000,

@@ -9,7 +9,7 @@ export const config = {
 
   databaseUrl: process.env.DATABASE_URL!,
 
-  corsOrigins: process.env.CORS_ORIGINS?.split(",") || "*",
+  corsOrigins: process.env.CORS_ORIGINS?.split(",") || ["*"],
 
   asterisk: {
     host: process.env.ASTERISK_HOST || "192.168.15.176",

@@ -18,7 +18,7 @@ import axios from "axios";
 
 import { sipService } from "../services/sipService";
 import { requestMicrophonePermission } from "../utils/permissions";
-import { API_BASE_URL, WS_BASE_URL } from "../config/urls";
+import { API_BASE_URL, WS_BASE_URL, initializeURLs } from "../config/urls";
 import {
   SIP_STATUS,
   SIP_REALM,
@@ -212,14 +212,40 @@ export default function CallServiceApp() {
     };
 
     try {
-      const session = sipService.call(uri, options);
-      if (session) {
-        setCurrentCall({
-          session,
-          direction: "outgoing",
-          peerLabel: `${target.name} (${target.device})`,
-        });
-        setMessage({ type: "", text: "" });
+      console.log(
+        "Iniciando chamada USANDO CONEXÃO PERSISTENTE para:",
+        target.name
+      );
+      setMessage({ type: "info", text: "Iniciando chamada..." });
+
+      const session = sipService.call(
+        uri,
+        options,
+        // onProgress
+        () => {
+          setMessage({ type: "info", text: "Chamando..." });
+        },
+        // onAccepted
+        () => {
+          setCurrentCall({
+            session,
+            direction: "outgoing",
+            peerLabel: `${target.name} (${target.device})`,
+          });
+          setMessage({ type: "success", text: "Chamada conectada" });
+        },
+        // onFailed
+        (cause) => {
+          setMessage({
+            type: "error",
+            text: `Falha na chamada: ${cause || "Erro desconhecido"}`,
+          });
+          setCurrentCall(null);
+        }
+      );
+
+      if (!session) {
+        setMessage({ type: "error", text: "Erro ao iniciar chamada" });
       }
     } catch {
       setMessage({ type: "error", text: "Erro ao iniciar chamada" });
@@ -230,6 +256,11 @@ export default function CallServiceApp() {
     if (!incomingCall?.session) return;
 
     try {
+      console.log(
+        "Atendendo chamada USANDO CONEXÃO PERSISTENTE de:",
+        incomingCall.fromName
+      );
+
       // JsSIP answer method only needs options object
       (incomingCall.session as any).answer({
         mediaConstraints: {
@@ -244,6 +275,7 @@ export default function CallServiceApp() {
         peerLabel: `${incomingCall.fromName} (${incomingCall.fromDevice})`,
       });
       setIncomingCall(null);
+      setMessage({ type: "success", text: "Chamada atendida" });
     } catch {
       setMessage({ type: "error", text: "Erro ao atender chamada" });
     }
@@ -281,25 +313,52 @@ export default function CallServiceApp() {
     };
 
     try {
-      const session = sipService.call(uri, options);
-      if (session) {
-        setCurrentCall({
-          session,
-          direction: "outgoing",
-          peerLabel: `Ramal ${dialedNumber}`,
-        });
-        setDialerOpen(false);
-        setDialedNumber("");
+      console.log("Discando USANDO CONEXÃO PERSISTENTE para:", dialedNumber);
+      setMessage({ type: "info", text: "Iniciando chamada..." });
+
+      const session = sipService.call(
+        uri,
+        options,
+        // onProgress
+        () => {
+          setMessage({ type: "info", text: "Chamando..." });
+        },
+        // onAccepted
+        () => {
+          setCurrentCall({
+            session,
+            direction: "outgoing",
+            peerLabel: `Ramal ${dialedNumber}`,
+          });
+          setMessage({ type: "success", text: "Chamada conectada" });
+          setDialerOpen(false);
+          setDialedNumber("");
+        },
+        // onFailed
+        (cause) => {
+          setMessage({
+            type: "error",
+            text: `Falha na chamada: ${cause || "Erro desconhecido"}`,
+          });
+          setCurrentCall(null);
+        }
+      );
+
+      if (!session) {
+        setMessage({ type: "error", text: "Erro ao discar número" });
       }
     } catch {
       setMessage({ type: "error", text: "Erro ao discar número" });
     }
   };
 
-  // Load stored user data
+  // Load stored user data and initialize URLs
   useEffect(() => {
     const loadUserData = async () => {
       try {
+        // Inicializa URLs dinamicamente
+        await initializeURLs();
+
         const userData = await AsyncStorage.getItem("callSystemUser");
         if (userData) {
           const parsed = JSON.parse(userData);
