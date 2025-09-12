@@ -64,23 +64,22 @@ import {
 
 // Configuração dinâmica do baseURL do axios baseada no host atual
 const getBackendUrl = (): string => {
-  const protocol = window.location.protocol;
   const hostname = window.location.hostname;
 
-  // Se está rodando em localhost, mantém localhost
+  // Se está rodando em localhost, sempre usa HTTP para o backend
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return `${protocol}//localhost:3001`;
+    return "http://localhost:3001";
   }
 
   // Se está rodando em IP, usa o mesmo IP para o backend
-  return `${protocol}//${hostname}:3001`;
+  return `http://${hostname}:3001`;
 };
 
 // Configuração dinâmica da URL do WebSocket
 const getWebSocketUrl = (): string => {
   const hostname = window.location.hostname;
 
-  // Se está rodando em localhost, mantém localhost
+  // Se está rodando em localhost, sempre usa WS para o backend
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return "ws://localhost:3001/ws/device-status";
   }
