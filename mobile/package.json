@@ -15,7 +15,8 @@
     "check-errors": "tsc --noEmit --pretty",
     "clean": "react-native clean",
     "translate": "npx easy-translate-i18n",
-    "web": "vite"
+    "web": "vite",
+    "build": "npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output ./android/app/src/main/assets/index.android.bundle --assets-dest ./android/app/src/main/res && cd android && ./gradlew --stop && ./gradlew clean && sleep 5 && ./gradlew assembleRelease --no-daemon"
   },
   "jest": {
     "preset": "react-native"

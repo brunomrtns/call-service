@@ -19,6 +19,7 @@ import axios from "axios";
 import { sipService } from "../services/sipService";
 import { requestMicrophonePermission } from "../utils/permissions";
 import { API_BASE_URL, WS_BASE_URL, initializeURLs } from "../config/urls";
+import { httpsConfig } from "../config/https";
 import {
   SIP_STATUS,
   SIP_REALM,
@@ -33,6 +34,9 @@ import {
   type SIPStatus,
   type WebSocketMessage,
 } from "../types";
+
+// Configure HTTPS for development
+httpsConfig.configureAxiosForDevelopment();
 
 // Configure axios base URL
 axios.defaults.baseURL = API_BASE_URL;

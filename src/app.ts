@@ -139,9 +139,9 @@ class Application {
           key: fs.readFileSync(config.https.keyPath),
           cert: fs.readFileSync(config.https.certPath),
         };
-        
+
         this.server = createHttpsServer(httpsOptions, this.app);
-        
+
         logger.info("HTTPS server configured with SSL certificates");
       } else {
         this.server = createServer(this.app);
@@ -155,7 +155,9 @@ class Application {
       const wsProtocol = config.https.enabled ? "wss" : "ws";
 
       this.server.listen(port, "0.0.0.0", () => {
-        logger.info(`${protocol.toUpperCase()} server running on port ${port} (all interfaces)`);
+        logger.info(
+          `${protocol.toUpperCase()} server running on port ${port} (all interfaces)`
+        );
         logger.info(`Local: ${protocol}://localhost:${port}`);
         logger.info(`Network: ${protocol}://0.0.0.0:${port}`);
         logger.info(

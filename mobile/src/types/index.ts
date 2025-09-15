@@ -131,42 +131,27 @@ export const SIP_STATUS = {
 
 export type SIPStatus = (typeof SIP_STATUS)[keyof typeof SIP_STATUS];
 
-// Função para detectar o IP do Asterisk dinamicamente
-const detectAsteriskHost = (): string => {
-  // Tenta detectar o IP baseado no ambiente
-  if (typeof window !== "undefined") {
-    // No web, usa o mesmo IP do host atual
-    const hostname = window.location.hostname;
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return "192.168.15.176"; // IP padrão do Asterisk
-    }
-    // Se estiver acessando via IP, assume que o Asterisk está no mesmo subnet
-    const parts = hostname.split(".");
-    if (parts.length === 4 && parts[0] === "192" && parts[1] === "168") {
-      // Mantém o mesmo subnet, mas usa IP específico do Asterisk
-      return "192.168.15.176";
-    }
-  }
-
-  // Fallback para IP padrão
-  return "192.168.15.176";
-};
-
 // Cache do host do Asterisk
 let cachedAsteriskHost: string | null = null;
 
+// Função segura para detectar o host do Asterisk sem dependências externas
+const detectAsteriskHostSafe = (): string => {
+  // IP fixo do Asterisk - simples e direto
+  return "192.168.15.176";
+};
+
 export const getAsteriskHost = (): string => {
   if (!cachedAsteriskHost) {
-    cachedAsteriskHost = detectAsteriskHost();
+    cachedAsteriskHost = detectAsteriskHostSafe();
     console.log("Asterisk host detectado:", cachedAsteriskHost);
   }
   return cachedAsteriskHost;
 };
 
-// Constantes SIP dinâmicas
-export const ASTERISK_HOST = getAsteriskHost();
-export const SIP_WS_URI = `wss://${ASTERISK_HOST}:8089/asterisk/ws`;
-export const SIP_REALM = ASTERISK_HOST;
+// Constantes SIP fixas - muito mais simples!
+export const ASTERISK_HOST = "192.168.15.176";
+export const SIP_WS_URI = `wss://192.168.15.176:8089/asterisk/ws`;
+export const SIP_REALM = "192.168.15.176";
 export const SIP_PASSWORD_DEFAULT = "Teste123";
 
 // Função para atualizar configurações SIP se necessário
