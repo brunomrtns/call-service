@@ -4,6 +4,8 @@ import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { createServer } from "http";
+import { createServer as createHttpsServer } from "https";
+import fs from "fs";
 import { config } from "@/config";
 import Database from "@/config/database";
 import logger from "@/utils/logger";
@@ -130,16 +132,34 @@ class Application {
     try {
       await Database.connect();
 
-      this.server = createServer(this.app);
+      // Criar servidor HTTP ou HTTPS baseado na configuração
+      if (config.https.enabled) {
+        // Ler certificados SSL
+        const httpsOptions = {
+          key: fs.readFileSync(config.https.keyPath),
+          cert: fs.readFileSync(config.https.certPath),
+        };
+        
+        this.server = createHttpsServer(httpsOptions, this.app);
+        
+        logger.info("HTTPS server configured with SSL certificates");
+      } else {
+        this.server = createServer(this.app);
+        logger.info("HTTP server configured");
+      }
 
       this.wsService = new WebSocketService(this.server);
 
-      this.server.listen(config.port, "0.0.0.0", () => {
-        logger.info(`Server running on port ${config.port} (all interfaces)`);
-        logger.info(`Local: http://localhost:${config.port}`);
-        logger.info(`Network: http://0.0.0.0:${config.port}`);
+      const port = config.https.enabled ? config.https.port : config.port;
+      const protocol = config.https.enabled ? "https" : "http";
+      const wsProtocol = config.https.enabled ? "wss" : "ws";
+
+      this.server.listen(port, "0.0.0.0", () => {
+        logger.info(`${protocol.toUpperCase()} server running on port ${port} (all interfaces)`);
+        logger.info(`Local: ${protocol}://localhost:${port}`);
+        logger.info(`Network: ${protocol}://0.0.0.0:${port}`);
         logger.info(
-          `WebSocket server running on ws://0.0.0.0:${config.port}/ws/device-status`
+          `WebSocket server running on ${wsProtocol}://0.0.0.0:${port}/ws/device-status`
         );
         logger.info(`Environment: ${config.nodeEnv}`);
       });

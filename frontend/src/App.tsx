@@ -66,26 +66,26 @@ import {
 const getBackendUrl = (): string => {
   const hostname = window.location.hostname;
 
-  // Se está rodando em localhost, sempre usa HTTP para o backend
+  // Se está rodando em localhost, sempre usa HTTPS para o backend
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "http://localhost:3001";
+    return "https://localhost:3443";
   }
 
-  // Se está rodando em IP, usa o mesmo IP para o backend
-  return `http://${hostname}:3001`;
+  // Se está rodando em IP, usa o mesmo IP para o backend com HTTPS
+  return `https://${hostname}:3443`;
 };
 
 // Configuração dinâmica da URL do WebSocket
 const getWebSocketUrl = (): string => {
   const hostname = window.location.hostname;
 
-  // Se está rodando em localhost, sempre usa WS para o backend
+  // Se está rodando em localhost, sempre usa WSS para o backend
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "ws://localhost:3001/ws/device-status";
+    return "wss://localhost:3443/ws/device-status";
   }
 
-  // Se está rodando em IP, usa o mesmo IP para o WebSocket
-  return `ws://${hostname}:3001/ws/device-status`;
+  // Se está rodando em IP, usa o mesmo IP para o WebSocket com WSS
+  return `wss://${hostname}:3443/ws/device-status`;
 };
 
 axios.defaults.baseURL = getBackendUrl();

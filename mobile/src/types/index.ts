@@ -165,7 +165,7 @@ export const getAsteriskHost = (): string => {
 
 // Constantes SIP dinâmicas
 export const ASTERISK_HOST = getAsteriskHost();
-export const SIP_WS_URI = `ws://${ASTERISK_HOST}:8088/asterisk/ws`;
+export const SIP_WS_URI = `wss://${ASTERISK_HOST}:8089/asterisk/ws`;
 export const SIP_REALM = ASTERISK_HOST;
 export const SIP_PASSWORD_DEFAULT = "Teste123";
 

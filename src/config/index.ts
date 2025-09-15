@@ -37,6 +37,13 @@ export const config = {
     level: process.env.DEBUG === "true" ? "debug" : "info",
     dir: path.join(__dirname, "../logs"),
   },
+
+  https: {
+    enabled: process.env.HTTPS_ENABLED === "true",
+    port: parseInt(process.env.HTTPS_PORT || "3443", 10),
+    certPath: process.env.HTTPS_CERT_PATH || "./ssl/cert.pem",
+    keyPath: process.env.HTTPS_KEY_PATH || "./ssl/key.pem",
+  },
 };
 
 const requiredEnvVars = ["DATABASE_URL", "ASTERISK_HOST", "JWT_SECRET"];
